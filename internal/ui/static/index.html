@@ -115,6 +115,9 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
 .paths li::before { content: "› "; color: var(--accent); }
 .codein { font-size: 30px !important; letter-spacing: .3em; text-align: center; color: var(--accent) !important; }
 .themes { display: flex; gap: 8px; flex-wrap: wrap; }
+.game { display: flex; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.game:hover { background: var(--bg); }
+.game .n { flex: 1; }
 .themes button { display: flex; gap: 6px; align-items: center; background: var(--bg); color: var(--text); padding: 6px 10px; }
 .themes button.on { outline: 2px solid var(--accent); }
 .swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
@@ -155,6 +158,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
       <div class="digits" id="code">--- ---</div>
     </div>
     <div class="icons" id="icons" hidden>
+      <button id="phoneBtn" title="phones and computers without bit-flow (p)">phone</button>
       <button id="themeBtn" title="change theme (t)">theme</button>
       <button id="settingsBtn" title="settings (s)">settings</button>
     </div>
@@ -222,6 +226,16 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
   </div>
 </div>
 
+<!-- steam games -->
+<div class="scrim" id="gameDlg">
+  <div class="panel" role="dialog" aria-modal="true">
+    <div class="title">send a steam game to <span id="gmPeer" class="acc"></span></div>
+    <div id="gmList" style="margin-top:12px;max-height:46vh;overflow:auto"></div>
+    <div class="note">it goes straight into their steam library; if they already have an older version, only the changes are sent.</div>
+    <div class="actions"><button id="gmCancel">cancel <span class="sub">esc</span></button></div>
+  </div>
+</div>
+
 <!-- settings -->
 <div class="scrim" id="setDlg">
   <div class="panel" role="dialog" aria-modal="true">
@@ -243,6 +257,18 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
     <div class="note" id="sessInfo"></div>
     <div class="err note" id="setErr"></div>
     <div class="actions"><button id="forgetBtn" class="err" style="margin-right:auto">sign out this browser</button><button id="setCancel">cancel</button><button class="go" id="setSave">save</button></div>
+  </div>
+</div>
+
+<!-- phone / browser access -->
+<div class="scrim" id="phoneDlg">
+  <div class="panel" role="dialog" aria-modal="true" style="text-align:center">
+    <div class="title">phone, or a computer without bit-flow</div>
+    <div id="phoneQR" style="width:220px;height:220px;margin:18px auto;border-radius:10px;overflow:hidden;background:#fff"></div>
+    <div class="big" id="phoneURL" style="font-size:18px"></div>
+    <div class="note">scan or type this on the same wi-fi. phones can send files here with your pairing code;
+      computers can download bit-flow from it, no internet needed.</div>
+    <div class="actions"><button class="go" id="phoneClose">done</button></div>
   </div>
 </div>
 
@@ -333,7 +359,7 @@ function render(s) {
   $("code").textContent = fmtCode(s.code);
   $("statusLine").innerHTML = `<b>${esc(s.name)}</b> · receiving into <button id="destLink" title="${esc(s.settings.dest)}">${esc(tidy(s.settings.dest))}</button> · port ${s.port}`;
   const addrs = (s.addrs || []).map((a) => `${esc(a.label.toLowerCase())} ${esc(a.ip)}`).join("  ·  ");
-  $("foot").innerHTML = `<kbd>r</kbd> refresh &nbsp; <kbd>t</kbd> theme &nbsp; <kbd>s</kbd> settings &nbsp;·&nbsp; v${esc(s.version)}${addrs ? " &nbsp;·&nbsp; " + addrs : ""}`;
+  $("foot").innerHTML = `<kbd>r</kbd> refresh &nbsp; <kbd>p</kbd> phone &nbsp; <kbd>t</kbd> theme &nbsp; <kbd>s</kbd> settings &nbsp;·&nbsp; v${esc(s.version)}${addrs ? " &nbsp;·&nbsp; " + addrs : ""}`;
   renderPeers(s); renderXfers(s); renderOffer(s);
 }
 function renderPeers(s) {
@@ -345,7 +371,7 @@ function renderPeers(s) {
   el.innerHTML = s.peers.map((p) => {
     const addr = esc(p.addrs[0] + ":" + p.port);
     return `<div class="peer"><span class="n">${esc(p.name)}</span><span class="a">${esc(osName(p.os))} · ${esc(p.addrs[0])}</span>
-      <span class="acts"><button class="key" data-send="files" data-addr="${addr}" data-name="${esc(p.name)}">files</button><button class="key" data-send="folder" data-addr="${addr}" data-name="${esc(p.name)}">folder</button></span></div>`;
+      <span class="acts"><button class="key" data-send="files" data-addr="${addr}" data-name="${esc(p.name)}">files</button><button class="key" data-send="folder" data-addr="${addr}" data-name="${esc(p.name)}">folder</button><button class="key" data-game="1" data-addr="${addr}" data-name="${esc(p.name)}">game</button></span></div>`;
   }).join("");
 }
 function renderXfers(s) {
@@ -401,6 +427,9 @@ function renderOffer(s) {
   else if (of.already > 0) notes.push(`<div class="note">${of.skipped} identical files (${bytes(of.already)}) already here, they'll be skipped</div>`);
   for (const [from, to] of Object.entries(of.renames || {})) notes.push(`<div class="note">${esc(from)} exists, saving as ${esc(to)}</div>`);
   if (of.raw) notes.push(`<div class="note warn">data will not be encrypted</div>`);
+  if (of.steam) notes.unshift(of.library ? `<div class="note acc">steam game — installs into your steam library; restart steam afterwards</div>`
+    : `<div class="note">steam game — no steam library here, so it's saved as a folder</div>`);
+  if (of.other_os) notes.push(`<div class="note warn">this is their ${esc(of.other_os)} copy; steam may need to download your version</div>`);
   $("ofNotes").innerHTML = notes.join("");
   open("offerDlg");
 }
@@ -414,6 +443,27 @@ $("ofChange").onclick = async () => {
   const r = await api("/api/pick", {kind: "dest"}).catch((e) => (toast(e.message), null));
   if (r && r.paths.length) { offerDest = r.paths[0]; $("ofDest").textContent = tidy(offerDest); }
 };
+
+async function pickGame(addr, name) {
+  const games = await api("/api/games").catch((e) => (toast(e.message), null));
+  if (!games) return;
+  $("gmPeer").textContent = name;
+  $("gmList").innerHTML = games.length ? games.map((g) => `<div class="game" data-appid="${esc(g.appid)}" data-gname="${esc(g.name)}">
+      <span class="n">${esc(g.name)}</span><span class="sub small">${bytes(g.size)}</span></div>`).join("")
+    : `<div class="empty">no installed steam games found on this computer.</div>`;
+  $("gmList").onclick = (e) => {
+    const row = e.target.closest(".game");
+    if (!row) return;
+    close("gameDlg");
+    sendTarget = {addr, name, steam: row.dataset.appid, paths: []};
+    $("sdPeer").textContent = name; $("sdPeer2").textContent = name;
+    $("sdPaths").innerHTML = `<li>${esc(row.dataset.gname)} (steam)</li>`;
+    $("sdErr").textContent = ""; $("sdCode").value = "";
+    open("sendDlg"); $("sdCode").focus();
+  };
+  open("gameDlg");
+}
+$("gmCancel").onclick = () => close("gameDlg");
 
 let sendTarget = null;
 async function startSend(kind, addr, name) {
@@ -430,7 +480,7 @@ $("sdGo").onclick = async () => {
   const code = $("sdCode").value.replace(/\D/g, "");
   if (code.length < 6) { $("sdErr").textContent = "enter the 6-digit code shown on " + sendTarget.name; return; }
   $("sdGo").disabled = true;
-  try { await api("/api/send", {to: sendTarget.addr, peer: sendTarget.name, paths: sendTarget.paths, code}); close("sendDlg"); }
+  try { await api("/api/send", {to: sendTarget.addr, peer: sendTarget.name, paths: sendTarget.paths, steam: sendTarget.steam || "", code}); close("sendDlg"); }
   catch (e) { $("sdErr").textContent = e.message; }
   finally { $("sdGo").disabled = false; }
 };
@@ -475,11 +525,20 @@ async function cycleTheme() {
   toast("theme: " + next);
 }
 $("themeBtn").onclick = cycleTheme;
+function openPhone() {
+  if (!state || !state.phone_url) { toast("no network address yet"); return; }
+  $("phoneQR").innerHTML = state.phone_qr; // generated by bit-flow itself
+  $("phoneURL").textContent = state.phone_url.replace("http://", "");
+  open("phoneDlg");
+}
+$("phoneBtn").onclick = openPhone;
+$("phoneClose").onclick = () => close("phoneDlg");
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   if (b.dataset.send) startSend(b.dataset.send, b.dataset.addr, b.dataset.name);
+  else if (b.dataset.game) pickGame(b.dataset.addr, b.dataset.name);
   else if (b.dataset.manual) { const a = $("addr").value.trim(); startSend(b.dataset.manual, a, a); }
   else if (b.dataset.cancel) api(`/api/transfers/${b.dataset.cancel}/cancel`, {}).catch((e) => toast(e.message));
   else if (b.dataset.reveal) api("/api/reveal", {path: b.dataset.reveal}).catch((e) => toast(e.message));
@@ -493,10 +552,13 @@ document.addEventListener("keydown", (e) => {
   if (isOpen("offerDlg")) { if (e.key === "Enter") answerOffer(true); if (e.key === "Escape") answerOffer(false); return; }
   if (isOpen("sendDlg")) { if (e.key === "Enter") $("sdGo").click(); if (e.key === "Escape") close("sendDlg"); return; }
   if (isOpen("setDlg")) { if (e.key === "Escape") $("setCancel").click(); return; }
+  if (isOpen("phoneDlg")) { if (e.key === "Escape" || e.key === "Enter") close("phoneDlg"); return; }
+  if (isOpen("gameDlg")) { if (e.key === "Escape") close("gameDlg"); return; }
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("main").hidden) return;
   if (e.key === "r") scan();
   else if (e.key === "t") cycleTheme();
   else if (e.key === "s") openSettings();
+  else if (e.key === "p") openPhone();
 });
 
 // ---- live state ----

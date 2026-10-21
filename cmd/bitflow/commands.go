@@ -2,9 +2,12 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +19,7 @@ import (
 	"github.com/sshivamanand/bit-flow/internal/secure"
 	"github.com/sshivamanand/bit-flow/internal/transfer"
 	"github.com/sshivamanand/bit-flow/internal/units"
+	"github.com/sshivamanand/bit-flow/internal/web"
 )
 
 func cmdIfaces() error {
@@ -35,6 +39,38 @@ func cmdIfaces() error {
 		fmt.Printf("  %-28s %s\n", fmt.Sprintf("%s (%s)", ifc.Label, ifc.Name), strings.Join(addrs, ", "))
 	}
 	return nil
+}
+
+// serveHTTP serves browser requests until ctx ends.
+func serveHTTP(ctx context.Context, ln net.Listener, h http.Handler) {
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	_ = srv.Serve(ln)
+}
+
+// webURL is the address phones and browsers can open, on the first LAN interface.
+func webURL(port int) string {
+	ifs, _ := netinfo.List()
+	for _, ifc := range ifs {
+		for _, ip := range ifc.Addrs {
+			if !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+				return fmt.Sprintf("http://%s:%d", ip, port)
+			}
+		}
+	}
+	return ""
+}
+
+// printWebAccess shows the browser address and a QR code for phones.
+func printWebAccess(url, what string) {
+	if url == "" {
+		return
+	}
+	fmt.Printf("\n%s Open %s\n", what, url)
+	fmt.Print(web.TerminalQR(url))
 }
 
 // stdin is shared so prompts never lose buffered input between them.

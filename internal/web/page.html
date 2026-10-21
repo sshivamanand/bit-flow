@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#161816">
+<title>bit-flow</title>
+<style>
+:root { --bg: #161816; --bg2: #1e211e; --bg3: #2a2e2a; --text: #e2e4e0; --sub: #5e635e; --accent: #b7e35a; --error: #ff6b6b; }
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f1eee8; --bg2: #e6e2da; --bg3: #dad5cb; --text: #2b2925; --sub: #8f897e; --accent: #4f7a12; --error: #c43d3d; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  padding: max(20px, env(safe-area-inset-top)) 18px 40px;
+}
+.wrap { max-width: 640px; margin: 0 auto; }
+.logo { font-size: 24px; font-weight: 500; letter-spacing: -.03em; margin-bottom: 4px; }
+.logo span { color: var(--accent); }
+.sub { color: var(--sub); }
+.small { font-size: 13px; }
+h2 { font-size: 13px; font-weight: 400; color: var(--sub); margin: 30px 0 12px; display: flex; align-items: center; gap: 10px; }
+h2::after { content: ""; flex: 1; height: 1px; background: var(--bg3); }
+button, .btn { font: inherit; border: 0; border-radius: 9px; padding: 11px 16px; cursor: pointer; background: var(--bg2); color: var(--text); text-decoration: none; display: inline-block; }
+button.go, .btn.go { background: var(--accent); color: var(--bg); font-weight: 500; }
+button:disabled { opacity: .5; }
+input { font: inherit; color: var(--accent); background: var(--bg2); border: 0; border-radius: 9px; padding: 12px; width: 100%; }
+input:focus, button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.codein { font-size: 28px; letter-spacing: .3em; text-align: center; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.err { color: var(--error); font-size: 13.5px; min-height: 1.3em; margin-top: 8px; }
+.item { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--bg3); }
+.item .n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.bar { height: 3px; background: var(--bg3); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.bar div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.ok { color: var(--accent); }
+code, pre { font-family: inherit; }
+pre { background: var(--bg2); border-radius: 9px; padding: 10px 12px; overflow-x: auto; font-size: 13px; margin: 8px 0; user-select: all; }
+.pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.pick label { flex: 1; min-width: 140px; text-align: center; }
+.pick input { display: none; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo"><span>bit</span>-flow</div>
+  <div class="sub" id="who">…</div>
+
+  <section id="loginBox" hidden>
+    <h2>pairing code</h2>
+    <div class="sub small" id="loginHint"></div>
+    <input id="code" class="codein" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="······" style="margin-top:10px">
+    <div class="err" id="loginErr"></div>
+    <button class="go" id="loginBtn" style="width:100%">continue</button>
+  </section>
+
+  <section id="uploadBox" hidden>
+    <h2>send files to <span id="upName"></span></h2>
+    <div class="pick">
+      <label class="btn go">choose files<input type="file" id="files" multiple></label>
+      <label class="btn" id="folderPick">choose a folder<input type="file" id="folder" webkitdirectory multiple></label>
+    </div>
+    <div id="upList"></div>
+  </section>
+
+  <section id="shareBox" hidden>
+    <h2>download from <span id="shName"></span></h2>
+    <div id="shList"></div>
+    <div class="sub small" style="margin-top:8px">folders download as a .zip.</div>
+  </section>
+
+  <section id="getBox">
+    <h2>get bit-flow for a computer</h2>
+    <div class="sub small">much faster than a browser, and it can receive too. downloads straight from this computer, no internet needed.</div>
+    <div id="bins" class="row" style="margin-top:12px"></div>
+    <div id="cmds"></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function bytes(n) {
+  const u = n >= 1e9 ? [1e9, "GB"] : n >= 1e6 ? [1e6, "MB"] : n >= 1e3 ? [1e3, "KB"] : [1, "B"];
+  return (u[0] === 1 ? n : (n / u[0]).toFixed(1)) + " " + u[1];
+}
+async function api(method, path, body, extra) {
+  const res = await fetch(path, Object.assign({method, credentials: "same-origin",
+    headers: {"X-Bitflow": "1", "Content-Type": "application/json"}, body: body === undefined ? undefined : JSON.stringify(body)}, extra || {}));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+let info = null;
+
+async function load() {
+  info = await api("GET", "/web/info");
+  $("who").textContent = info.upload && info.share ? info.name : info.upload ? `${info.name} is ready to receive` : info.share ? `${info.name} is sharing files` : info.name;
+  $("upName").textContent = info.name; $("shName").textContent = info.name;
+  const wantsLogin = (info.upload || info.share) && !info.signedIn;
+  $("loginBox").hidden = !wantsLogin;
+  $("loginHint").textContent = `the 6-digit code shown on ${info.name}`;
+  $("uploadBox").hidden = !(info.upload && info.signedIn);
+  $("shareBox").hidden = !(info.share && info.signedIn);
+  if (info.share && info.signedIn) loadShared();
+  // Folder upload exists in desktop browsers; phones only pick files.
+  if (!("webkitdirectory" in document.createElement("input")) || /iPhone|iPad|Android/.test(navigator.userAgent)) $("folderPick").hidden = true;
+  renderBins();
+}
+
+function renderBins() {
+  const bins = info.binaries || [];
+  const ua = navigator.userAgent;
+  const mine = /Windows/.test(ua) ? "windows" : /Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua) ? "darwin" : /Linux/.test(ua) && !/Android/.test(ua) ? "linux" : "";
+  const label = (b) => ({darwin: "mac", windows: "windows", linux: "linux"}[b.os]) + " " + (b.arch === "arm64" ? (b.os === "darwin" ? "apple silicon" : "arm") : b.arch === "amd64" && b.os === "darwin" ? "intel" : "x64");
+  bins.sort((a, b) => (b.os === mine) - (a.os === mine));
+  $("bins").innerHTML = bins.length ? bins.map((b) => `<a class="btn ${b.os === mine ? "go" : ""}" href="/get/${esc(b.platform)}${b.os === "windows" ? ".exe" : ""}">${esc(label(b))} <span class="small">${bytes(b.size)}</span></a>`).join("")
+    : `<div class="sub small">no copies here — on ${esc(info.name)}, run <code>make cross</code> to bundle them.</div>`;
+  const host = esc(info.host);
+  $("cmds").innerHTML = `<div class="sub small" style="margin-top:14px">or in a terminal (mac / linux):</div><pre>curl -fsSL http://${host}/get/sh | sh</pre>` +
+    (bins.some((b) => b.os === "windows") ? `<div class="sub small">windows powershell:</div><pre>iwr http://${host}/get/windows-amd64.exe -OutFile bitflow.exe</pre>` : "");
+}
+
+$("loginBtn").onclick = async () => {
+  $("loginBtn").disabled = true;
+  try { await api("POST", "/web/login", {code: $("code").value}); await load(); }
+  catch (e) { $("loginErr").textContent = e.message; }
+  finally { $("loginBtn").disabled = false; }
+};
+$("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("loginBtn").click(); });
+
+// ---- upload: files go up in 8 MB chunks, 4 at a time ----
+const CHUNK = 8 << 20, PARALLEL = 4;
+async function uploadFiles(list) {
+  for (const file of list) {
+    const name = file.webkitRelativePath || file.name;
+    const row = document.createElement("div");
+    row.className = "item";
+    row.innerHTML = `<div class="n">${esc(name)}<div class="bar"><div></div></div></div><span class="sub small">${bytes(file.size)}</span>`;
+    $("upList").prepend(row);
+    const bar = row.querySelector(".bar div"), status = row.querySelector("span");
+    try {
+      const {id} = await api("POST", "/web/upload", {name, size: file.size});
+      let next = 0, sent = 0;
+      const worker = async () => {
+        while (next < file.size) {
+          const off = next; next += CHUNK;
+          const blob = file.slice(off, Math.min(off + CHUNK, file.size));
+          for (let attempt = 0; ; attempt++) {
+            try {
+              const res = await fetch(`/web/upload/${id}?off=${off}`, {method: "PUT", credentials: "same-origin", headers: {"X-Bitflow": "1"}, body: blob});
+              if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+              break;
+            } catch (e) { if (attempt >= 4) throw e; await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); }
+          }
+          sent += blob.size; bar.style.width = (sent / file.size * 100).toFixed(1) + "%";
+        }
+      };
+      await Promise.all(Array.from({length: PARALLEL}, worker));
+      bar.style.width = "100%"; status.textContent = "sent ✓"; status.className = "ok small";
+    } catch (e) { status.textContent = e.message; status.className = "err small"; }
+  }
+}
+$("files").onchange = (e) => { uploadFiles([...e.target.files]); e.target.value = ""; };
+$("folder").onchange = (e) => { uploadFiles([...e.target.files]); e.target.value = ""; };
+
+async function loadShared() {
+  const items = await api("GET", "/web/list");
+  $("shList").innerHTML = items.map((it) => `<div class="item"><div class="n">${esc(it.name)}${it.dir ? "/" : ""}</div>
+    <span class="sub small">${bytes(it.size)}</span><a class="btn go" href="/web/dl/${it.i}">download</a></div>`).join("") ||
+    `<div class="sub small">nothing shared.</div>`;
+}
+
+load().catch((e) => { $("who").textContent = e.message; });
+</script>
+</body>
+</html>

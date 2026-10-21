@@ -623,3 +623,63 @@ func TestProbe(t *testing.T) {
 		t.Fatalf("typ=%d body=%s err=%v", typ, body, err)
 	}
 }
+
+// makeSteam builds a minimal Steam library with one installed game.
+func makeSteam(t *testing.T, root string, withGame bool) {
+	t.Helper()
+	apps := filepath.Join(root, "steamapps")
+	must(t, os.MkdirAll(filepath.Join(apps, "common"), 0o755))
+	if !withGame {
+		return
+	}
+	must(t, os.WriteFile(filepath.Join(apps, "appmanifest_620.acf"), []byte(`"AppState"
+{
+	"appid"		"620"
+	"name"		"Portal 2"
+	"StateFlags"		"4"
+	"installdir"		"Portal 2"
+	"SizeOnDisk"		"5000000"
+}`), 0o644))
+	writeRandom(t, filepath.Join(apps, "common", "Portal 2", "portal2.pak"), 3<<20+7, 0o644)
+	writeRandom(t, filepath.Join(apps, "common", "Portal 2", "bin", "engine.so"), 300_000, 0o755)
+}
+
+func TestSteamGameLandsInLibrary(t *testing.T) {
+	src, dstLib := t.TempDir(), t.TempDir()
+	makeSteam(t, src, true)
+	makeSteam(t, dstLib, false)
+	gameDir := filepath.Join(src, "steamapps", "common", "Portal 2")
+	m, err := planner.BuildSteam(proto.SteamGame{AppID: "620", Name: "Portal 2", InstallDir: "Portal 2", OS: "darwin"},
+		gameDir, filepath.Join(src, "steamapps", "appmanifest_620.acf"))
+	must(t, err)
+
+	var info OfferInfo
+	addr, done := startReceiver(t, &Receiver{Dest: t.TempDir(), SteamLibrary: dstLib,
+		Confirm: func(_ *proto.Offer, i OfferInfo) Decision { info = i; return Decision{Accept: true} }}, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := NewSender(testOpts()).Send(ctx, addr, m); err != nil {
+		t.Fatal(err)
+	}
+	must(t, <-done)
+	if info.Steam == nil || info.SteamLibrary != dstLib {
+		t.Fatalf("receiver didn't see a Steam offer: %+v", info)
+	}
+	assertSameTree(t, gameDir, filepath.Join(dstLib, "steamapps", "common", "Portal 2"))
+	if b, err := os.ReadFile(filepath.Join(dstLib, "steamapps", "appmanifest_620.acf")); err != nil || !strings.Contains(string(b), "Portal 2") {
+		t.Fatal("appmanifest missing from the library")
+	}
+
+	// An update only sends what changed, and replaces the older file in place.
+	writeRandom(t, filepath.Join(gameDir, "bin", "engine.so"), 300_001, 0o755)
+	m, _ = planner.BuildSteam(proto.SteamGame{AppID: "620", Name: "Portal 2", InstallDir: "Portal 2"},
+		gameDir, filepath.Join(src, "steamapps", "appmanifest_620.acf"))
+	addr, done = startReceiver(t, &Receiver{Dest: t.TempDir(), SteamLibrary: dstLib}, true)
+	res, err := NewSender(testOpts()).Send(ctx, addr, m)
+	must(t, err)
+	must(t, <-done)
+	if res.Bytes != 300_001 {
+		t.Fatalf("update moved %d bytes, want only the changed file", res.Bytes)
+	}
+	assertSameTree(t, gameDir, filepath.Join(dstLib, "steamapps", "common", "Portal 2"))
+}

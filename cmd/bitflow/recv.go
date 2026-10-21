@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/sshivamanand/bit-flow/internal/store"
 	"github.com/sshivamanand/bit-flow/internal/transfer"
 	"github.com/sshivamanand/bit-flow/internal/units"
+	"github.com/sshivamanand/bit-flow/internal/web"
 )
 
 func cmdRecv(ctx context.Context, args []string) error {
@@ -114,6 +116,8 @@ func cmdRecv(ctx context.Context, args []string) error {
 			}
 		case o.Bench:
 			fmt.Printf("✓ Benchmark: %s\n", summary(res.Bytes, res.Elapsed))
+		case o.Steam != nil:
+			fmt.Printf("✓ Received %s: %s%s\n  Restart Steam and it shows as installed.\n", o.Steam.Name, summary(res.Bytes, res.Elapsed), alreadyNote(res.Already))
 		default:
 			fmt.Printf("✓ Received %d files: %s%s\n", res.Files, summary(res.Bytes, res.Elapsed), alreadyNote(res.Already))
 		}
@@ -136,6 +140,15 @@ func cmdRecv(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// One port for everything: bit-flow peers, and browsers (phones, /get).
+	peers, browsers := web.Split(ln)
+	go serveHTTP(ctx, browsers, web.NewServer(web.Options{
+		Name: cfg.DeviceName, CheckCode: r.CheckCode, Binaries: web.FindBinaries,
+		UploadDir: func() string { return dest },
+		OnUpload: func(name string, size int64, from string) {
+			fmt.Printf("\n✓ %s sent %s (%s)\n", from, name, units.Bytes(size))
+		},
+	}))
 	info := selfInfo(cfg, *port, discovery.RoleReceive, "")
 	r.Probe = func() any { return info() }
 	go discovery.Respond(ctx, proto.DefaultPort, info) // scanners always ask on the default port; info carries the real one
@@ -143,7 +156,7 @@ func cmdRecv(ctx context.Context, args []string) error {
 		fmt.Printf("\n⚠ Several wrong pairing codes were tried. New pairing code: %s\n", secure.FormatCode(c))
 	}
 	printRecvBanner(dest, *port, r.CurrentCode(), cfg.DeviceName())
-	return r.Serve(ctx, ln, *once)
+	return r.Serve(ctx, peers, *once)
 }
 
 // fetch receives from a sender that is waiting to be fetched.
@@ -161,6 +174,18 @@ func fetch(ctx context.Context, r *transfer.Receiver, from, code string, cfg *co
 	fmt.Printf("Fetching from %s…\n", addr)
 	_, err = r.Fetch(ctx, addr, code)
 	return err
+}
+
+func osName(goos string) string {
+	switch goos {
+	case "darwin":
+		return "macOS"
+	case "windows":
+		return "Windows"
+	case "linux":
+		return "Linux"
+	}
+	return goos
 }
 
 func alreadyNote(already int64) string {
@@ -192,6 +217,7 @@ func printRecvBanner(dest string, port int, code, name string) {
 			}
 		}
 	}
+	printWebAccess(webURL(port), "Phone, or a computer without bit-flow?")
 	fmt.Println("\nWaiting for a transfer… (Ctrl+C to stop)")
 }
 
@@ -209,6 +235,21 @@ func describeOffer(o *proto.Offer, info transfer.OfferInfo) {
 			}
 			top = append(top, name)
 		}
+	}
+	if o.Steam != nil {
+		fmt.Printf("\n▶ %s wants to send the Steam game %s: %d files, %s\n", o.From, o.Steam.Name, files, units.Bytes(o.Total))
+		if info.SteamLibrary != "" {
+			fmt.Printf("  → installing into your Steam library %s (restart Steam afterwards)\n", info.SteamLibrary)
+		} else {
+			fmt.Printf("  → no Steam library here, so it's saved as a folder in %s\n", info.Dest)
+		}
+		if o.Steam.OS != runtime.GOOS {
+			fmt.Printf("  ⚠ this is their %s copy; Steam may need to download the %s version\n", osName(o.Steam.OS), osName(runtime.GOOS))
+		}
+		if info.Already > 0 {
+			fmt.Printf("  = %s already here; only the differences are sent\n", units.Bytes(info.Already))
+		}
+		return
 	}
 	fmt.Printf("\n▶ Incoming from %s: %d files, %s\n", o.From, files, units.Bytes(o.Total))
 	for i, name := range top {

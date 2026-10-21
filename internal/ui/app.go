@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"sort"
@@ -26,8 +27,10 @@ import (
 	"github.com/sshivamanand/bit-flow/internal/planner"
 	"github.com/sshivamanand/bit-flow/internal/proto"
 	"github.com/sshivamanand/bit-flow/internal/secure"
+	"github.com/sshivamanand/bit-flow/internal/steam"
 	"github.com/sshivamanand/bit-flow/internal/store"
 	"github.com/sshivamanand/bit-flow/internal/transfer"
+	"github.com/sshivamanand/bit-flow/internal/web"
 )
 
 // offerTimeout declines offers nobody answers.
@@ -53,6 +56,8 @@ type App struct {
 	lastScan  time.Time
 	addrs     []Addr // cached: listing interfaces runs a command on macOS
 	addrsAt   time.Time
+	phoneURL  string // browser address on the LAN
+	phoneQR   string // SVG
 }
 
 // xfer is one transfer as the UI shows it.
@@ -99,6 +104,9 @@ type offer struct {
 	Resumed bool              `json:"resumed"`
 	Renames map[string]string `json:"renames,omitempty"`
 	Raw     bool              `json:"raw"`
+	Steam   string            `json:"steam,omitempty"`    // game name, for Steam offers
+	Library string            `json:"library,omitempty"`  // Steam library it installs into
+	OtherOS string            `json:"other_os,omitempty"` // set when the game was built for another OS
 
 	decide chan transfer.Decision
 }
@@ -150,13 +158,38 @@ func (a *App) Start(ctx context.Context, port int) error {
 		}
 	}
 	a.port = ln.Addr().(*net.TCPAddr).Port
+
+	// One port for bit-flow peers and browsers (phones, /get downloads).
+	peers, browsers := web.Split(ln)
+	srv := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: web.NewServer(web.Options{
+		Name: a.DeviceName, CheckCode: a.recv.CheckCode, Binaries: web.FindBinaries,
+		UploadDir: func() string {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.cfg.ReceiveDir()
+		},
+		OnUpload: a.onBrowserUpload,
+	})}
+	go srv.Serve(browsers)
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	for _, ad := range a.localAddrs() {
+		if ip := net.ParseIP(ad.IP); ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+			a.phoneURL = fmt.Sprintf("http://%s:%d", ad.IP, a.port)
+			a.phoneQR = web.SVGQR(a.phoneURL)
+			break
+		}
+	}
+
 	info := func() discovery.Info {
 		return discovery.Info{Proto: proto.Version, ID: a.cfg.ID, Name: a.cfg.DeviceName(), OS: runtime.GOOS,
 			Port: a.port, Role: discovery.RoleReceive}
 	}
 	a.recv.Probe = func() any { return info() }
 	go discovery.Respond(ctx, proto.DefaultPort, info)
-	go a.recv.Serve(ctx, ln, false)
+	go a.recv.Serve(ctx, peers, false)
 	go a.tick(ctx)
 	return nil
 }
@@ -212,6 +245,12 @@ func (a *App) confirm(o *proto.Offer, info transfer.OfferInfo) transfer.Decision
 	}
 	of.Top, of.Files = topLevel(o.Files)
 	of.Name = summarize(of.Top)
+	if o.Steam != nil {
+		of.Name, of.Steam, of.Library = o.Steam.Name, o.Steam.Name, info.SteamLibrary
+		if o.Steam.OS != runtime.GOOS {
+			of.OtherOS = o.Steam.OS
+		}
+	}
 	a.mu.Lock()
 	a.offers = append(a.offers, of)
 	a.mu.Unlock()
@@ -256,8 +295,12 @@ func (a *App) onStart(o *proto.Offer, info transfer.OfferInfo) {
 		return
 	}
 	top, files := topLevel(o.Files)
+	name := summarize(top)
+	if o.Steam != nil {
+		name = o.Steam.Name + " (steam)"
+	}
 	x := &xfer{
-		ID: newID(), Dir: "in", Peer: o.From, Name: summarize(top), Files: files, Total: o.Total,
+		ID: newID(), Dir: "in", Peer: o.From, Name: name, Files: files, Total: o.Total,
 		Done: info.Already, Already: info.Already, State: "running", Dest: info.Dest, Started: time.Now(),
 		lastDone: info.Already, lastT: time.Now(),
 		cancel: a.recv.CancelActive, release: awake.Hold(),
@@ -297,6 +340,18 @@ func (a *App) onDone(o *proto.Offer, res transfer.Result, err error) {
 	a.saveHistoryLocked()
 }
 
+// onBrowserUpload records a file a phone or browser sent.
+func (a *App) onBrowserUpload(name string, size int64, from string) {
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.transfers = append([]*xfer{{
+		ID: newID(), Dir: "in", Peer: from, Name: name, Files: 1, Total: size, Done: size,
+		State: "done", Dest: a.cfg.ReceiveDir(), Started: now, Finished: now,
+	}}, a.transfers...)
+	a.saveHistoryLocked()
+}
+
 // finish records a transfer's outcome. Caller holds a.mu.
 func finish(x *xfer, res transfer.Result, err error) {
 	x.Finished = time.Now()
@@ -319,18 +374,40 @@ func finish(x *xfer, res transfer.Result, err error) {
 
 // ---- sending ----
 
+// Games lists installed Steam games.
+func (a *App) Games() []steam.Game { return steam.Games() }
+
+// SendSteam sends an installed Steam game into the receiver's Steam library.
+func (a *App) SendSteam(to, peerName, appID, code string) (string, error) {
+	games, err := steam.Find(appID)
+	if err != nil {
+		return "", err
+	}
+	g := games[0]
+	m, err := planner.BuildSteam(proto.SteamGame{AppID: g.AppID, Name: g.Name, InstallDir: g.InstallDir, OS: runtime.GOOS}, g.Dir, g.Manifest)
+	if err != nil {
+		return "", err
+	}
+	return a.send(to, peerName, m, g.Name+" (steam)", code, false)
+}
+
 // Send starts sending paths to addr (host:port) with the receiver's code.
 func (a *App) Send(to, peerName string, paths []string, code string, raw bool) (string, error) {
-	code = secure.NormalizeCode(code)
-	if len(code) < 6 {
-		return "", errors.New("enter the 6-digit pairing code shown on the other computer")
-	}
 	if len(paths) == 0 {
 		return "", errors.New("pick something to send")
 	}
 	m, err := planner.Build(paths)
 	if err != nil {
 		return "", err
+	}
+	top, _ := topLevel(m.Files)
+	return a.send(to, peerName, m, summarize(top), code, raw)
+}
+
+func (a *App) send(to, peerName string, m *planner.Manifest, name, code string, raw bool) (string, error) {
+	code = secure.NormalizeCode(code)
+	if len(code) < 6 {
+		return "", errors.New("enter the 6-digit pairing code shown on the other computer")
 	}
 	addr := to
 	if _, _, err := net.SplitHostPort(addr); err != nil {
@@ -339,10 +416,9 @@ func (a *App) Send(to, peerName string, paths []string, code string, raw bool) (
 	if peerName == "" {
 		peerName = to
 	}
-	top, _ := topLevel(m.Files)
 	ctx, cancel := context.WithCancel(a.ctx)
 	x := &xfer{
-		ID: newID(), Dir: "out", Peer: peerName, Name: summarize(top), Files: m.FileCount(),
+		ID: newID(), Dir: "out", Peer: peerName, Name: name, Files: m.FileCount(),
 		Total: m.Total, State: "waiting", Started: time.Now(), cancel: cancel,
 	}
 	s := transfer.NewSender(transfer.Options{
@@ -507,6 +583,8 @@ type State struct {
 	Transfers []*xfer          `json:"transfers"`
 	Peers     []discovery.Peer `json:"peers"`
 	Scanning  bool             `json:"scanning"`
+	PhoneURL  string           `json:"phone_url,omitempty"`
+	PhoneQR   string           `json:"phone_qr,omitempty"`
 }
 
 // Addr is one of this device's network addresses.
@@ -555,6 +633,8 @@ func (a *App) State() State {
 		Offers:   append([]*offer{}, a.offers...),
 		Peers:    append([]discovery.Peer{}, a.peers...),
 		Scanning: a.scanning,
+		PhoneURL: a.phoneURL,
+		PhoneQR:  a.phoneQR,
 	}
 	for _, x := range a.transfers {
 		c := *x

@@ -87,8 +87,8 @@ check "resume after the sender was killed" "echo \"\$partial\" | grep -q bitflow
 cleanup
 
 out=$("$B" bench --loopback --size 4GB 2>&1 | strip)
-check "bench loopback" "echo \"\$out\" | grep -q 'streams'"
-echo "$out" | grep streams
+check "bench loopback" "echo \"\$out\" | grep -qE 'auto|streams'"
+echo "$out" | grep -E 'auto \(|streams ' | tail -1
 
 echo "== app"
 mkdir -p "$W/cfg-app" "$W/app-in"; printf '{"id":"id-app","dest":"%s"}' "$W/app-in" > "$W/cfg-app/config.json"
@@ -119,6 +119,38 @@ for i in $(seq 1 30); do sleep 0.5; same "$G" "$W/app-in/Game" && break; done
 check "app receives after accepting in the UI" "[ -n '$OID' ] && same '$G' '$W/app-in/Game'"
 hist=$(python3 -c "import json; print(len(json.load(open('$W/cfg-app/history.json'))))" 2>/dev/null)
 check "transfer history saved" "[ '${hist:-0}' -ge 2 ]"
+
+echo "== browsers, /get, steam"
+recv webbox 7727 "$W/in8"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "X-Bitflow: 1" -d '{"code":"000000"}' http://127.0.0.1:7727/web/login)
+check "browser login refuses a wrong code" "[ $code = 401 ]"
+curl -s -c "$W/webjar" -X POST -H "X-Bitflow: 1" -d '{"code":"135790"}' http://127.0.0.1:7727/web/login > /dev/null
+head -c 9000000 /dev/urandom > "$W/phone.bin"
+UP=$(curl -s -b "$W/webjar" -X POST -H "X-Bitflow: 1" -d '{"name":"Camera/phone.bin","size":9000000}' http://127.0.0.1:7727/web/upload | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+dd if="$W/phone.bin" of="$W/c2" bs=1 skip=8388608 2>/dev/null; head -c 8388608 "$W/phone.bin" > "$W/c1"
+curl -s -b "$W/webjar" -X PUT -H "X-Bitflow: 1" --data-binary @"$W/c2" "http://127.0.0.1:7727/web/upload/$UP?off=8388608" > /dev/null
+curl -s -b "$W/webjar" -X PUT -H "X-Bitflow: 1" --data-binary @"$W/c1" "http://127.0.0.1:7727/web/upload/$UP?off=0" > /dev/null
+check "browser upload (chunks out of order)" "cmp -s '$W/phone.bin' '$W/in8/Camera/phone.bin'"
+curl -fsSL http://127.0.0.1:7727/get/sh | BITFLOW_DIR="$W/friend" sh > /dev/null 2>&1
+check "/get installer installs a working bitflow" "'$W/friend/bitflow' version | grep -q bitflow"
+cleanup
+
+mk_steam() { # mk_steam ROOT [with-game]
+  mkdir -p "$1/steamapps/common"
+  [ -n "$2" ] || return 0
+  printf '"AppState"\n{\n\t"appid"\t"620"\n\t"name"\t"Portal 2"\n\t"StateFlags"\t"4"\n\t"installdir"\t"Portal 2"\n\t"SizeOnDisk"\t"9000000"\n}\n' > "$1/steamapps/appmanifest_620.acf"
+  mkdir -p "$1/steamapps/common/Portal 2/bin"; head -c 9000000 /dev/urandom > "$1/steamapps/common/Portal 2/portal2.pak"
+  printf 'engine' > "$1/steamapps/common/Portal 2/bin/engine"
+}
+mk_steam "$W/steamA" yes; mk_steam "$W/steamB"
+out=$(BITFLOW_STEAM_ROOT="$W/steamA" "$B" games 2>&1)
+check "games lists installed Steam games" "echo \"\$out\" | grep -q 'Portal 2'"
+mkdir -p "$W/cfg-gamer"; printf '{"id":"id-gamer","name":"gamer"}' > "$W/cfg-gamer/config.json"
+(BITFLOW_STEAM_ROOT="$W/steamB" BITFLOW_CONFIG_DIR="$W/cfg-gamer" "$B" recv --to "$W/in9" --port 7728 --code 135790 --yes > "$W/recv-gamer.log" 2>&1 &)
+mkdir -p "$W/in9"; sleep 0.6
+out=$(BITFLOW_STEAM_ROOT="$W/steamA" BITFLOW_CONFIG_DIR="$W/cfg-sender" "$B" send --steam portal --to 127.0.0.1:7728 --code 135790 2>&1 | strip)
+check "Steam game lands in the receiver's library" "cmp -s '$W/steamA/steamapps/common/Portal 2/portal2.pak' '$W/steamB/steamapps/common/Portal 2/portal2.pak' && [ -f '$W/steamB/steamapps/appmanifest_620.acf' ]"
+cleanup
 
 echo
 echo "$pass passed, $fail failed"

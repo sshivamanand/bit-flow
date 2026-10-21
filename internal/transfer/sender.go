@@ -97,6 +97,10 @@ type Sender struct {
 	id     *secure.Identity
 	idErr  error
 
+	hubOnce sync.Once
+	hub     *hub
+	hubErr  error
+
 	accepted  atomic.Bool
 	sent      atomic.Int64
 	committed atomic.Int64
@@ -193,6 +197,22 @@ func (s *Sender) Send(ctx context.Context, addr string, m *planner.Manifest) (Re
 	}
 }
 
+func (s *Sender) ensureHub() (*hub, error) {
+	s.hubOnce.Do(func() {
+		s.hub, s.hubErr = newHub(s.opts.Code, s.opts.SockBuf)
+		if s.hubErr == nil {
+			s.hub.onCodeChange = s.opts.OnCodeChange
+		}
+	})
+	return s.hub, s.hubErr
+}
+
+// CheckCode verifies a pairing code typed into a browser (Serve mode).
+func (s *Sender) CheckCode(code string) bool {
+	h, err := s.ensureHub()
+	return err == nil && h.checkCode(code)
+}
+
 // Serve waits on ln for a receiver to fetch the manifest (reverse mode, for
 // when the receiver can't accept incoming connections). Interrupted transfers
 // resume when the receiver reconnects. It returns after one complete transfer.
@@ -200,11 +220,10 @@ func (s *Sender) Serve(ctx context.Context, ln net.Listener, m *planner.Manifest
 	if err := s.validate(); err != nil {
 		return Result{}, err
 	}
-	h, err := newHub(s.opts.Code, s.opts.SockBuf)
+	h, err := s.ensureHub()
 	if err != nil {
 		return Result{}, err
 	}
-	h.onCodeChange = s.opts.OnCodeChange
 	offer, plan, src := s.prepare(m)
 
 	type outcome struct {
@@ -251,6 +270,7 @@ func backoff(attempt int) time.Duration {
 func (s *Sender) prepare(m *planner.Manifest) (proto.Offer, func(*proto.Accept) []planner.Unit, source) {
 	offer := s.offer(m.Total)
 	offer.Files = m.Files
+	offer.Steam = m.Steam
 	plan := func(a *proto.Accept) []planner.Unit {
 		skip := make(map[uint32]bool, len(a.Skip))
 		for _, f := range a.Skip {

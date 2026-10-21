@@ -112,6 +112,17 @@ type Offer struct {
 	NoHash    bool        `json:"nohash,omitempty"` // skip per-block checksums
 	Raw       bool        `json:"raw,omitempty"`    // sender asks for unencrypted data streams
 	Addrs     []NetAddr   `json:"addrs,omitempty"`  // sender's interfaces (multipath, advice)
+	Steam     *SteamGame  `json:"steam,omitempty"`  // the files are an installed Steam game
+}
+
+// SteamGame describes a game sent from a Steam library: entries are
+// "common/<InstallDir>/…" plus "appmanifest_<AppID>.acf", laid out to drop
+// into a receiver's steamapps folder.
+type SteamGame struct {
+	AppID      string `json:"appid"`
+	Name       string `json:"name"`
+	InstallDir string `json:"installdir"`
+	OS         string `json:"os"` // the sender's OS: games are built per platform
 }
 
 // NetAddr is one interface address of a peer.

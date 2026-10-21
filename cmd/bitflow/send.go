@@ -19,6 +19,7 @@ import (
 	"github.com/sshivamanand/bit-flow/internal/secure"
 	"github.com/sshivamanand/bit-flow/internal/transfer"
 	"github.com/sshivamanand/bit-flow/internal/units"
+	"github.com/sshivamanand/bit-flow/internal/web"
 )
 
 func cmdSend(ctx context.Context, args []string) error {
@@ -26,6 +27,7 @@ func cmdSend(ctx context.Context, args []string) error {
 	to := fs.String("to", "", "receiver: its device NAME or HOST[:PORT] (default: find one on the network)")
 	code := fs.String("code", "", "pairing code shown by the receiver (asked for if omitted)")
 	wait := fs.Bool("wait", false, "don't look for a receiver; wait for one to fetch (bitflow recv --from)")
+	steamGame := fs.String("steam", "", "send an installed Steam game (name or appid) into the receiver's Steam library")
 	port := fs.Int("port", proto.DefaultPort, "with --wait: TCP/UDP port to listen on")
 	retries := fs.Int("retries", transfer.DefaultRetries, "reconnect attempts after a dropped connection")
 	opts := transferFlags(fs)
@@ -33,14 +35,22 @@ func cmdSend(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(paths) == 0 {
-		return errors.New("nothing to send: bitflow send PATH... [--to NAME|HOST]")
+	if len(paths) == 0 && *steamGame == "" {
+		return errors.New("nothing to send: bitflow send PATH... [--to NAME|HOST], or --steam GAME")
+	}
+	if len(paths) > 0 && *steamGame != "" {
+		return errors.New("send either paths or --steam, not both")
 	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	m, err := planner.Build(paths)
+	var m *planner.Manifest
+	if *steamGame != "" {
+		m, err = steamManifest(*steamGame)
+	} else {
+		m, err = planner.Build(paths)
+	}
 	if err != nil {
 		return err
 	}
@@ -134,6 +144,11 @@ func waitForReceiver(ctx context.Context, o *transfer.Options, m *planner.Manife
 	if err != nil {
 		return transfer.Result{}, err
 	}
+	s := transfer.NewSender(*o)
+	peers, browsers := web.Split(ln)
+	go serveHTTP(ctx, browsers, web.NewServer(web.Options{
+		Name: cfg.DeviceName, CheckCode: s.CheckCode, Binaries: web.FindBinaries, Shared: sharedItems(m),
+	}))
 	offer := fmt.Sprintf("%s (%s)", topName(m), units.Bytes(m.Total))
 	go discovery.Respond(ctx, proto.DefaultPort, selfInfo(cfg, port, discovery.RoleSend, offer))
 
@@ -151,11 +166,29 @@ func waitForReceiver(ctx context.Context, o *transfer.Options, m *planner.Manife
 			}
 		}
 	}
+	printWebAccess(webURL(port), "Phone? Download it in a browser:")
 	fmt.Println("\nWaiting for a receiver… (Ctrl+C to stop)")
-	s := transfer.NewSender(*o)
 	stop := watchSender(s)
 	defer stop()
-	return s.Serve(ctx, ln, m)
+	return s.Serve(ctx, peers, m)
+}
+
+// sharedItems lists the top-level items of a manifest for browser download.
+func sharedItems(m *planner.Manifest) []web.Shared {
+	var out []web.Shared
+	index := map[string]int{}
+	for i, f := range m.Files {
+		top, _, nested := strings.Cut(f.Path, "/")
+		if !nested {
+			index[top] = len(out)
+			out = append(out, web.Shared{Name: f.Path, Path: m.Sources[i], Dir: f.Dir, Size: f.Size})
+			continue
+		}
+		if j, ok := index[top]; ok {
+			out[j].Size += f.Size
+		}
+	}
+	return out
 }
 
 func topName(m *planner.Manifest) string {

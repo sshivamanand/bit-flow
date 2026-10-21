@@ -20,6 +20,26 @@ type Manifest struct {
 	Sources []string
 	Total   int64
 	Skipped []string // devices, sockets, and symlinks pointing outside what's sent
+	Steam   *proto.SteamGame
+}
+
+// BuildSteam builds a manifest for an installed Steam game, laid out as the
+// receiver's steamapps folder expects: common/<installdir>/… and the appmanifest.
+func BuildSteam(g proto.SteamGame, gameDir, appManifest string) (*Manifest, error) {
+	m, err := Build([]string{gameDir, appManifest})
+	if err != nil {
+		return nil, err
+	}
+	top := filepath.Base(gameDir)
+	for i := range m.Files {
+		if p := m.Files[i].Path; p == top || strings.HasPrefix(p, top+"/") {
+			m.Files[i].Path = "common/" + p
+		}
+	}
+	m.Files = append([]proto.FileEntry{{Path: "common", Dir: true, Mode: 0o755}}, m.Files...)
+	m.Sources = append([]string{filepath.Dir(gameDir)}, m.Sources...)
+	m.Steam = &g
+	return m, nil
 }
 
 // Build walks each path. A directory "…/Game" becomes entries "Game", "Game/…";

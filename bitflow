@@ -1,0 +1,13 @@
+#!/bin/sh
+# Launcher: run ./bitflow from the repo root. Builds bin/bitflow the first time
+# (or when the source is newer), then runs it with your arguments.
+cd "$(dirname "$0")" || exit 1
+bin=bin/bitflow
+if [ ! -x "$bin" ] || [ -n "$(find cmd internal go.mod -newer "$bin" -type f 2>/dev/null | head -n 1)" ]; then
+  command -v go >/dev/null 2>&1 || { echo "bitflow: Go isn't installed. Get it from https://go.dev/dl/ or download a release binary." >&2; exit 1; }
+  echo "bitflow: building…" >&2
+  make build >/dev/null || exit 1
+fi
+cwd=$OLDPWD
+[ -n "$cwd" ] && cd "$cwd" 2>/dev/null
+exec "$(dirname "$0")/$bin" "$@"

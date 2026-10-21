@@ -37,11 +37,11 @@
   <rect x="60" y="254" width="480" height="86" rx="10" fill="#ecfeff" stroke="#0891b2"/>
   <text x="76" y="279" class="t">Control plane</text>
   <text x="76" y="301" class="s">pairing: 6-digit code → PAKE → pinned TLS 1.3</text>
-  <text x="76" y="321" class="s">manifest: parallel tree walk (sizes, mtimes — no pre-hash)</text>
+  <text x="76" y="321" class="s">manifest: tree walk (sizes, mtimes, links — no pre-hash)</text>
 
   <rect x="60" y="356" width="480" height="110" rx="10" fill="#fefce8" stroke="#ca8a04"/>
   <text x="76" y="381" class="t">Planner + Scheduler</text>
-  <text x="76" y="403" class="s">big files → 32 MiB chunks · small files → 32 MiB packs</text>
+  <text x="76" y="403" class="s">big files → 32 MiB chunks · small files → ≤ 4 MiB packs</text>
   <text x="76" y="423" class="s">one shared work queue · workers pull (work-stealing)</text>
   <text x="76" y="443" class="s">auto-tuner: adds streams, toggles zstd from live goodput</text>
 
@@ -106,7 +106,7 @@
   <text x="1076" y="381" class="t">Assembler</text>
   <text x="1076" y="403" class="s">out-of-order blocks → pwrite at exact offset</text>
   <text x="1076" y="423" class="s">small-file packs → parallel writer pool</text>
-  <text x="1076" y="443" class="s">resume journal: per-chunk bitmap, fsync'd every few s</text>
+  <text x="1076" y="443" class="s">resume journal: byte ranges, fsync'd every 3 s</text>
 
   <rect x="1060" y="482" width="480" height="250" rx="10" fill="#ffffff" stroke="#94a3b8"/>
   <text x="1076" y="506" class="t">Worker pipeline × N</text>
@@ -153,28 +153,27 @@
   <!-- Discovery -->
   <rect x="600" y="108" width="400" height="104" rx="12" fill="#f0fdfa" stroke="#0d9488" stroke-dasharray="5 4"/>
   <text x="800" y="134" class="t" text-anchor="middle">Discovery — works on any Wi-Fi</text>
-  <text x="800" y="158" class="s" text-anchor="middle">UDP multicast → mDNS → /24 subnet scan</text>
+  <text x="800" y="158" class="s" text-anchor="middle">UDP multicast + broadcast → /24 TCP probe</text>
   <text x="800" y="178" class="s" text-anchor="middle">→ QR code / typed address (always works)</text>
   <text x="800" y="198" class="s" text-anchor="middle">peers advertise every interface address</text>
 
   <!-- Control channel -->
   <line x1="542" y1="297" x2="1058" y2="297" stroke="#0891b2" stroke-width="2.5" marker-start="url(#at)" marker-end="url(#at)"/>
   <text x="800" y="286" class="lbl" fill="#0e7490">control channel · 1 TLS 1.3 connection</text>
-  <text x="800" y="316" class="s" text-anchor="middle">offer · accept(dest, selection) · progress · resume bitmap</text>
+  <text x="800" y="316" class="s" text-anchor="middle">offer · accept(dest, skip, have-ranges) · progress</text>
 
   <!-- Data frame -->
   <rect x="588" y="352" width="424" height="116" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="800" y="376" class="t" text-anchor="middle">Data frame (per ≤ 4 MiB block)</text>
-  <rect x="597" y="390" width="46" height="30" fill="#e0e7ff"/><text x="620" y="409" class="fr">unit</text>
-  <rect x="643" y="390" width="46" height="30" fill="#c7d2fe"/><text x="666" y="409" class="fr">file</text>
-  <rect x="689" y="390" width="58" height="30" fill="#e0e7ff"/><text x="718" y="409" class="fr">offset</text>
-  <rect x="747" y="390" width="40" height="30" fill="#c7d2fe"/><text x="767" y="409" class="fr">len</text>
-  <rect x="787" y="390" width="48" height="30" fill="#e0e7ff"/><text x="811" y="409" class="fr">rawLen</text>
-  <rect x="835" y="390" width="40" height="30" fill="#c7d2fe"/><text x="855" y="409" class="fr">flags</text>
-  <rect x="875" y="390" width="58" height="30" fill="#fde68a"/><text x="904" y="409" class="fr">XXH3</text>
+  <rect x="597" y="390" width="52" height="30" fill="#e0e7ff"/><text x="623" y="409" class="fr">file</text>
+  <rect x="649" y="390" width="66" height="30" fill="#c7d2fe"/><text x="682" y="409" class="fr">offset</text>
+  <rect x="715" y="390" width="48" height="30" fill="#e0e7ff"/><text x="739" y="409" class="fr">len</text>
+  <rect x="763" y="390" width="58" height="30" fill="#c7d2fe"/><text x="792" y="409" class="fr">rawLen</text>
+  <rect x="821" y="390" width="48" height="30" fill="#e0e7ff"/><text x="845" y="409" class="fr">flags</text>
+  <rect x="869" y="390" width="64" height="30" fill="#fde68a"/><text x="901" y="409" class="fr">XXH3</text>
   <rect x="933" y="390" width="70" height="30" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="3 3"/><text x="968" y="409" class="fr">payload…</text>
-  <text x="800" y="442" class="s" text-anchor="middle">flags: COMPRESSED · PACK · LAST_BLOCK_OF_CHUNK</text>
-  <text x="800" y="460" class="hs" text-anchor="middle">hash verified before write · chunk = unit of resume</text>
+  <text x="800" y="442" class="s" text-anchor="middle">flags: END · PACK · COMPRESSED (zstd)</text>
+  <text x="800" y="460" class="hs" text-anchor="middle">checksum of raw bytes, verified before write</text>
 
   <!-- Data streams -->
   <line x1="530" y1="540" x2="1072" y2="540" stroke="#2563eb" stroke-width="3" marker-end="url(#ab)"/>
@@ -183,7 +182,7 @@
   <text x="800" y="582" class="lbl" fill="#1d4ed8">stream 2 · Wi-Fi</text>
   <line x1="530" y1="640" x2="1072" y2="640" stroke="#16a34a" stroke-width="3" marker-end="url(#agr)"/>
   <text x="800" y="632" class="lbl" fill="#15803d">stream 3 · Ethernet</text>
-  <text x="800" y="672" class="lbl" fill="#94a3b8">⋮  auto-tuned 4 → 32 streams  ⋮</text>
+  <text x="800" y="672" class="lbl" fill="#94a3b8">⋮  auto-tuned 4 → 16 streams  ⋮</text>
   <line x1="530" y1="705" x2="1072" y2="705" stroke="#9333ea" stroke-width="3" marker-end="url(#ap)"/>
   <text x="800" y="697" class="lbl" fill="#7e22ce">stream N · Thunderbolt / USB4</text>
 
@@ -215,6 +214,6 @@
   <text x="1090" y="902" class="t">Browser fallback (phones / no binary)</text>
   <text x="1090" y="928" class="s">same web UI exposed to the LAN, code-protected</text>
   <text x="1090" y="950" class="s">parallel chunked uploads · Range-resumable downloads</text>
-  <text x="1090" y="972" class="s">File System Access API for big writes (Chromium)</text>
+  <text x="1090" y="972" class="s">folders download as streamed zips (no temp files)</text>
   <text x="1090" y="994" class="s">slower lane — native peer-to-peer is the fast lane</text>
 </svg>

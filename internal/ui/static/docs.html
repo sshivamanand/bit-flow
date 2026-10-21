@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en" data-theme="flow">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bit-flow docs</title>
+<style>
+:root, [data-theme="flow"] { --bg: #161816; --bg2: #1e211e; --bg3: #2a2e2a; --text: #e2e4e0; --sub: #5e635e; --accent: #b7e35a; }
+[data-theme="ember"]  { --bg: #1c1715; --bg2: #26201c; --bg3: #322a24; --text: #ecdfcf; --sub: #7d6b5c; --accent: #ff9248; }
+[data-theme="violet"] { --bg: #16141d; --bg2: #1f1c29; --bg3: #2a2637; --text: #e7e2f6; --sub: #6c6587; --accent: #b69bff; }
+[data-theme="paper"]  { --bg: #f1eee8; --bg2: #e6e2da; --bg3: #dad5cb; --text: #2b2925; --sub: #8f897e; --accent: #b4531d; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  font-size: 14.5px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 26px 24px 60px; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+nav { display: flex; align-items: baseline; gap: 14px; margin-bottom: 34px; }
+.logo { font-size: 24px; font-weight: 500; letter-spacing: -.03em; } .logo span { color: var(--accent); }
+.sub { color: var(--sub); }
+h2 { font-size: 13px; font-weight: 400; color: var(--sub); margin: 34px 0 12px; display: flex; align-items: center; gap: 10px; }
+h2::after { content: ""; flex: 1; height: 1px; background: var(--bg3); }
+p, li { margin: 6px 0; } ul { padding-left: 20px; }
+code, pre { font-family: inherit; }
+pre { background: var(--bg2); border-radius: 8px; padding: 10px 14px; overflow-x: auto; font-size: 13.5px; margin: 10px 0; }
+code { color: var(--accent); }
+pre code { color: var(--text); }
+kbd { background: var(--bg2); border-radius: 4px; padding: 1px 6px; font: inherit; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--bg3); vertical-align: top; } td:first-child { white-space: nowrap; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><a class="logo" href="/"><span>bit</span>-flow</a><span class="sub">docs</span><span style="flex:1"></span><a href="/">← back to the app</a></nav>
+
+  <h2>send something</h2>
+  <ol>
+    <li>Run <code>bitflow</code> on both computers. Each shows a <b>pairing code</b> at the top right.</li>
+    <li>Under <b>nearby</b>, click <b>files</b>, <b>folder</b> or <b>game</b> next to the other computer.</li>
+    <li>Type the code shown on <em>their</em> screen. They get an accept prompt and pick the folder.</li>
+  </ol>
+  <p class="sub">Not listed? Type its address under "or", or check you're on the same network and the firewall allows bit-flow.</p>
+
+  <h2>keys</h2>
+  <table>
+    <tr><td><kbd>r</kbd></td><td>scan for devices again</td></tr>
+    <tr><td><kbd>p</kbd></td><td>phone panel: QR code for phones and friends without bit-flow</td></tr>
+    <tr><td><kbd>t</kbd></td><td>next theme (flow, ember, violet, paper)</td></tr>
+    <tr><td><kbd>s</kbd></td><td>settings</td></tr>
+  </table>
+
+  <h2>interrupted?</h2>
+  <p>Wi-Fi drops reconnect automatically. If it stops, send the same thing again: only the missing bytes move, and identical files are skipped.</p>
+
+  <h2>when a file already exists</h2>
+  <table>
+    <tr><td>refuse</td><td>stop the transfer (default)</td></tr>
+    <tr><td>keep both</td><td>save theirs as "name (1)"</td></tr>
+    <tr><td>skip</td><td>keep yours, skip theirs</td></tr>
+    <tr><td>update</td><td>skip identical, replace changed (good for game updates)</td></tr>
+    <tr><td>replace</td><td>overwrite yours</td></tr>
+  </table>
+  <p class="sub">Change it in settings. Identical files are always skipped.</p>
+
+  <h2>going faster</h2>
+  <ul>
+    <li>Two laptops on the same Wi-Fi router share the air twice. Plug <em>one</em> into the router to roughly double the speed.</li>
+    <li>A cable between the laptops (Ethernet, Thunderbolt) beats Wi-Fi by a lot. If both are connected, bit-flow uses both.</li>
+    <li>Compression is automatic: it halves the bytes for most game and app data, and skips videos and zips.</li>
+  </ul>
+
+  <h2>steam games</h2>
+  <p>Click <b>game</b>, pick one, enter their code. It installs into their Steam library: restart Steam afterwards. If they have an older version, only changed files are sent.</p>
+
+  <h2>command line</h2>
+<pre><code>bitflow recv --to ~/Downloads
+bitflow send ./Game --to gaming-rig --code 482913
+bitflow send --steam "elden ring" --to gaming-rig
+bitflow bench --to gaming-rig --code 482913 --sweep
+bitflow history</code></pre>
+
+  <h2>more</h2>
+  <p>The full guides (CLI reference, security, troubleshooting, protocol) are in the repository's <code>docs/</code> folder.</p>
+</div>
+<script>
+// Use the theme chosen in the app, if this browser is signed in.
+fetch("/api/session", {credentials: "same-origin"}).then(r => r.ok ? r.json() : null)
+  .then(s => { if (s && s.theme) document.documentElement.dataset.theme = s.theme; }).catch(() => {});
+</script>
+</body>
+</html>

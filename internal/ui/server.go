@@ -18,7 +18,7 @@ import (
 	"github.com/sshivamanand/bit-flow/internal/steam"
 )
 
-//go:embed static/index.html
+//go:embed static/index.html static/docs.html
 var static embed.FS
 
 // Server serves the UI on a loopback address. API calls need a session
@@ -61,6 +61,7 @@ func OpenBrowser(url string) error { return openURL(url) }
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.index)
+	mux.HandleFunc("GET /docs", s.docs)
 	mux.HandleFunc("POST /api/session/start", s.startSession)
 	mux.HandleFunc("GET /api/session", s.auth(s.getSession))
 	mux.HandleFunc("POST /api/session", s.auth(s.updateSession))
@@ -225,6 +226,19 @@ func (s *Server) forgetSession(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	writeJSON(w, struct{}{})
+}
+
+// docs serves the built-in quick reference. It's static text, so it needs no login.
+func (s *Server) docs(w http.ResponseWriter, r *http.Request) {
+	if !s.sameHost(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	b, _ := static.ReadFile("static/docs.html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
+	_, _ = w.Write(b)
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {

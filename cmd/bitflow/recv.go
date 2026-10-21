@@ -28,17 +28,18 @@ import (
 
 func cmdRecv(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("recv", flag.ContinueOnError)
-	to := fs.String("to", "", "folder to save received files into (default: `bitflow config dest`, else the current folder)")
+	to := fs.String("to", "", "folder to save received files into (default: the configured folder, else the current one)")
 	from := fs.String("from", "", "fetch from a sender that is waiting (its NAME or HOST[:PORT])")
 	port := fs.Int("port", proto.DefaultPort, "TCP/UDP port to listen on")
 	yes := fs.Bool("yes", false, "accept transfers without asking")
 	once := fs.Bool("once", false, "exit after one transfer")
 	code := fs.String("code", "", "pairing code: a fixed one to use, or the sender's with --from")
-	conflict := fs.String("on-conflict", "", "when a different file already exists: error, skip, rename, overwrite or update (default: `bitflow config on_conflict`, else error)")
+	conflict := fs.String("on-conflict", "", "when a different file already exists: error, skip, rename, overwrite or update (default: the configured policy, else error)")
 	overwrite := fs.Bool("overwrite", false, "shorthand for --on-conflict=overwrite")
 	allowRaw := fs.Bool("allow-raw", false, "let senders use unencrypted data streams (trusted cables only)")
 	noResume := fs.Bool("no-resume", false, "delete partial files of interrupted transfers instead of resuming")
 	retries := fs.Int("retries", transfer.DefaultRetries, "with --from: reconnect attempts after a dropped connection")
+	steamLib := fs.String("steam-library", "", "Steam library for incoming games (default: this computer's main one; \"-\" saves games as plain folders)")
 	var sockBuf sizeFlag
 	fs.Var(&sockBuf, "sockbuf", "socket buffer size (default: OS autotuning)")
 	pos, err := parseArgs(fs, args)
@@ -79,6 +80,7 @@ func cmdRecv(ctx context.Context, args []string) error {
 
 	r := &transfer.Receiver{
 		Dest: dest, Policy: policy, AllowRaw: *allowRaw, SockBuf: int(sockBuf), Retries: *retries,
+		SteamLibrary: *steamLib,
 	}
 	if !*noResume {
 		r.StateDir = defaultStateDir()

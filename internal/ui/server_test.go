@@ -137,3 +137,18 @@ func TestIndexServed(t *testing.T) {
 		t.Fatal("missing CSP")
 	}
 }
+
+func TestDocsPage(t *testing.T) {
+	s := newTestServer(t)
+	w := do(t, s, "GET", "/docs", "", nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "send something") {
+		t.Fatalf("docs: %d", w.Code)
+	}
+	r := httptest.NewRequest("GET", "/docs", nil)
+	r.Host = "evil.example"
+	rec := httptest.NewRecorder()
+	s.routes().ServeHTTP(rec, r)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("foreign host got %d", rec.Code)
+	}
+}

@@ -330,7 +330,11 @@ func (a *App) onDone(o *proto.Offer, res transfer.Result, err error) {
 	if x == nil {
 		// Declined or refused before it started: keep a record anyway.
 		top, files := topLevel(o.Files)
-		x = &xfer{ID: newID(), Dir: "in", Peer: o.From, Name: summarize(top), Files: files, Total: o.Total, Started: time.Now()}
+		name := summarize(top)
+		if o.Steam != nil {
+			name = o.Steam.Name + " (steam)"
+		}
+		x = &xfer{ID: newID(), Dir: "in", Peer: o.From, Name: name, Files: files, Total: o.Total, Started: time.Now()}
 		a.transfers = append([]*xfer{x}, a.transfers...)
 	}
 	if x.release != nil {

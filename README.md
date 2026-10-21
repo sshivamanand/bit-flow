@@ -1,130 +1,165 @@
+<div align="center">
+
 # bit-flow
 
-Fast laptop-to-laptop file transfer over your local network (Wi‑Fi or cable): built for moving 100 GB
-games between friends' laptops. One small binary, no accounts, no cloud, no internet needed.
-Design: [ARCHITECTURE.md](ARCHITECTURE.md) · roadmap and measurements: [PLAN.md](PLAN.md).
+**Send huge files to another laptop, fast.**<br>
+Games, videos, whole folders. 100 GB is fine. No USB drive, no internet, no accounts.
 
-![bit-flow app](docs/app.jpg)
+<img src="docs/img/app.jpg" alt="bit-flow sending a 12.9 GB game" width="760">
 
-**Why it's fast:** parallel encrypted streams (auto-tuned), zstd compression when the link is the
-bottleneck (about half the bytes for app and game data), every link at once (Wi‑Fi + cable), resume after
-drops, identical files skipped, and game updates that send only what changed.
+</div>
 
-## Install
+---
 
-Download a release archive for your OS from the repository's Releases page, or:
+## What is this?
 
-```bash
-go install github.com/sshivamanand/bit-flow/cmd/bitflow@latest
-```
+You and a friend are on the same Wi‑Fi (or plugged into the same router). You want to give them a
+10 GB game, a pile of video clips, or a whole folder. bit-flow does that directly from your laptop
+to theirs: no cloud upload, no cables to swap, and it keeps going if the Wi‑Fi hiccups.
 
-A friend's laptop can get it straight from yours: see *Phones, and friends without bit-flow* below.
+It's a small program you run on both laptops. It opens a simple page in your browser. You pick what to
+send, type a 6-digit number shown on the other laptop, and it goes.
 
-## Build
+## 5-minute start
 
-```bash
-make build      # → bin/bitflow
-make cross      # → dist/bitflow-{darwin,windows,linux}-{arm64,amd64}
-make test       # unit + integration tests (race detector)
-make e2e        # 23 end-to-end checks of the real binary (macOS)
-```
+**You need:** two computers (Mac, Windows or Linux) on the same Wi‑Fi or network.
 
-## Use
+### 1. Get bit-flow on both computers
 
-### The app
+Go to the **[Releases page](https://github.com/sshivamanand/bit-flow/releases)** and download the file for your computer:
 
-```bash
-bitflow
-```
+| Your computer | Download |
+|---|---|
+| Mac (2020 or newer, M1/M2/M3/M4) | `…darwin_arm64.tar.gz` |
+| Older Mac (Intel) | `…darwin_amd64.tar.gz` |
+| Windows PC | `…windows_amd64.zip` |
+| Linux | `…linux_amd64.tar.gz` |
 
-This opens bit-flow in your browser (it runs locally, on `http://127.0.0.1:7710`). The first time, it asks
-what other devices should call this one. Other bit-flow computers on the network show up under
-**nearby**. Pick files or a folder, type the pairing code shown on the other screen, and go. Incoming
-transfers pop up with accept or decline and a choice of folder. Keys: `r` refresh, `t` theme, `s` settings.
+Unzip it. Inside is one file called `bitflow` (`bitflow.exe` on Windows). That's the whole program.
 
-### The command line
+> **Friend doesn't have it?** If *you* already have bit-flow running, they can get it from *your*
+> computer with no internet. See [Phones & browsers](docs/phones.md).
 
-On the **receiving** laptop:
+### 2. Start it
+
+Open a terminal (on Mac: the *Terminal* app; on Windows: *PowerShell*), go to the folder with `bitflow`,
+and run:
 
 ```bash
-bitflow recv --to ~/Games
+./bitflow          # Mac / Linux
+.\bitflow.exe      # Windows
 ```
 
-It prints a pairing code and its device name. On the **sending** laptop:
+A browser tab opens. The first time, it asks **what other devices should call you**. Type a name like
+`maya-laptop` and press Enter.
+
+### 3. Send something
+
+1. Do steps 1–2 on the **other** laptop too.
+2. On the sending laptop, the other one shows up under **nearby**. Click **files**, **folder** or **game**
+   and choose what to send.
+3. Type the **6-digit pairing code shown on the other laptop's screen** (top right).
+4. On the other laptop, a box pops up: click **accept**. That's it. You'll see a progress bar and the speed.
+
+<details>
+<summary><b>The first time you run it, your computer may show a warning</b></summary>
+
+This is normal for small programs that aren't from a big company.
+
+- **Mac:** if it says it "can't be opened", open Terminal and run `xattr -d com.apple.quarantine bitflow`, then try again.
+  When asked about "incoming network connections", click **Allow**.
+- **Windows:** if you see a blue "Windows protected your PC" box, click **More info → Run anyway**.
+  If the firewall asks, tick **Private networks** and click **Allow**.
+- **Linux:** nothing usually. If you use a firewall, allow port 7700.
+</details>
+
+## If the other laptop doesn't show up
+
+- Make sure bit-flow is **running** on both (the browser page is open).
+- Both must be on the **same Wi‑Fi**. Guest and hotel Wi‑Fi often block devices from seeing each other. A phone
+  hotspot works as a workaround.
+- Under **or**, type the other laptop's address (like `192.168.1.40`). Its screen shows it at the bottom.
+- More help: **[Troubleshooting](docs/troubleshooting.md)**.
+
+## Make it faster
+
+The speed limit is almost always your Wi‑Fi, not bit-flow. Two things help a lot:
+
+1. **Plug one laptop into the router with a cable.** If both laptops use Wi‑Fi through the same router, every
+   byte travels the air twice. One cable can roughly **double** the speed. bit-flow tells you when this applies.
+2. **Use a cable between the laptops** (Ethernet, or Thunderbolt/USB4 on Macs) if you can. That's 10× faster
+   than Wi‑Fi or more.
+
+Roughly how long **100 GB** takes:
+
+| Connection | Time |
+|---|---:|
+| Both laptops on Wi‑Fi (same router) | 20–50 min |
+| One laptop plugged into the router | 11–17 min |
+| Ethernet cable | about 15 min |
+| Thunderbolt cable | 1–2 min |
+
+bit-flow also shrinks files while sending when that helps, and uses several connections at once. More in the **[Speed guide](docs/speed.md)**.
+
+## What it can do
+
+| | |
+|---|---|
+| **Resume** | Wi‑Fi dropped? It reconnects by itself. Closed the laptop? Send the same thing again later and only the missing part moves. |
+| **Skips what they already have** | Identical files aren't sent twice. |
+| **Steam games** | Click **game**, pick one, and it goes straight into your friend's Steam library. Restart Steam and it's installed. Updates only send what changed. [How](docs/games.md) |
+| **Phones** | Press `p` for a QR code. A phone can send photos to your laptop, or download files from it. [How](docs/phones.md) |
+| **Safe** | A pairing code protects every transfer, and everything is encrypted. Nothing is saved without the receiver clicking accept, and nothing is overwritten unless they choose to. [Details](docs/security.md) |
+| **Four colour themes** | Press `t` in the app. |
+
+> **Cloned the repository instead?** Run `./bitflow` from its top folder. It builds itself the first time (needs [Go](https://go.dev/dl/)).
+
+## Prefer typing commands?
+
+Everything in the app also works from the terminal:
 
 ```bash
-bitflow send ~/Games/BigGame --to gaming-rig --code 482913    # by device name
-bitflow send ~/Games/BigGame --to 192.168.1.40 --code 482913  # or by address
-bitflow send ~/Games/BigGame                                  # finds the receiver itself
+# On the receiving laptop: shows a pairing code and a device name
+bitflow recv --to ~/Downloads
+
+# On the sending laptop
+bitflow send ~/Games/BigGame --code 482913
 ```
 
-If one laptop's firewall blocks incoming connections, flip who waits:
+`bitflow send` finds the other laptop by itself. Add `--to their-name` if there are several. See the
+**[command reference](docs/cli.md)** for everything.
 
-```bash
-bitflow send ~/Games/BigGame --wait                        # prints a code and waits
-bitflow recv --to ~/Games --from shivam --code 482913      # on the other laptop
-```
+## Good to know
 
-`bitflow peers` lists bit-flow devices on the network. `bitflow history` shows past transfers, and
-`bitflow config` shows or changes this device's name, default folder and conflict policy.
+- It only works on a **local network** (same Wi‑Fi or cable), never over the internet.
+- **One transfer at a time** per laptop. If it's busy, the sender gets a clear message.
+- Received files go to the folder you choose (default: `Downloads/bit-flow`). Change it in **settings**.
+- Nothing is sent to any server. There are no accounts and no tracking.
 
-### Steam games
+## All the guides
 
-```bash
-bitflow games                                   # installed Steam games, all libraries
-bitflow send --steam "elden ring" --to gaming-rig
-```
+| | |
+|---|---|
+| [Getting started](docs/getting-started.md) | Install and first transfer, in more detail |
+| [The app](docs/app.md) | Every screen, button and keyboard shortcut |
+| [Command line](docs/cli.md) | Every command and option |
+| [Steam games](docs/games.md) | Sending games and updates |
+| [Phones & browsers](docs/phones.md) | Phones, and giving bit-flow to a friend |
+| [Speed guide](docs/speed.md) | Getting the most out of your setup |
+| [Troubleshooting](docs/troubleshooting.md) | When something doesn't work |
+| [Security](docs/security.md) | How it keeps your files safe |
+| [Protocol](docs/protocol.md), [Development](docs/development.md), [Architecture](ARCHITECTURE.md) | For people who want to look under the hood |
 
-The game goes straight into the receiver's Steam library. Restart Steam and it shows as installed. If they
-already have an older version, only the changed files are sent. In the app, use **game** next to a device.
+## Under the hood (for the curious)
 
-### Phones, and friends without bit-flow
+bit-flow is a single Go program. Both laptops agree on encryption keys using the 6-digit code, then open
+several encrypted connections and split the files into pieces that all connections pull from. The receiver
+checks every piece before saving it and keeps track of what's safely written, which is what makes resume work.
+Full design: [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Every bit-flow computer also answers in a browser at the address it prints (and shows as a QR code;
-press `p` in the app). Phones enter the pairing code and can send files to a receiver, or download what a
-`send --wait` computer offers. Laptops get bit-flow itself from the same page, with no internet needed:
-
-```bash
-curl -fsSL http://192.168.1.40:7700/get/sh | sh
-```
-
-Run `make cross` on your machine first so it can hand out builds for every OS, not just its own.
-
-The receiver is asked to accept (`--yes` skips the prompt). Files keep the sender's folder structure,
-permissions and timestamps. Everything is encrypted (TLS 1.3, with keys agreed through the pairing code).
-
-- **Interrupted?** Wi-Fi drops are retried automatically. If the sender gives up or is stopped, run
-  the same `send` again and it resumes where it stopped.
-- **Already have some of it?** Identical files are skipped. For files that exist but differ, the
-  receiver picks `--on-conflict=error` (default), `skip`, `rename` (saves as `Game (1)`) or `overwrite`.
-- **Direct cable between two trusted laptops?** `recv --allow-raw` + `send --raw` drops encryption
-  on the data streams for maximum speed.
-- **Wi-Fi and a cable?** bit-flow uses every link the two computers share at once (multipath), and
-  tells you when one change, like plugging one laptop into the router, would make it faster.
-- **App and game bundles** keep their symlinks, so copied macOS apps still launch.
-
-### Measure your link
-
-With `bitflow recv` running on one laptop:
-
-```bash
-bitflow bench --to 192.168.1.40 --code 482913 --sweep    # tries 1–32 streams, no disk involved
-bitflow bench --loopback --sweep                         # this machine only: engine ceiling
-```
-
-### Tuning flags (send / bench)
-
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--streams` | auto | parallel TCP connections; auto opens 16 and tunes how many carry data (4 → 8 → 16) |
-| `--compress` | auto | zstd per block: auto stays on while it pays off, `on`, `off` |
-| `--chunk` | 32MiB | work unit; files are split into chunks that streams pull from a shared queue |
-| `--block` | 4MiB | frame size on the wire |
-| `--raw` | off | unencrypted data streams (receiver needs `--allow-raw`) |
-| `--retries` | 10 | reconnect attempts after a dropped connection |
-| `--nohash` | off | skip per-block XXH3 checksums |
-| `--sockbuf` | OS auto | socket buffer size |
+<img src="docs/architecture.png" alt="Architecture diagram" width="100%">
 
 ## Status
 
-See [PLAN.md](PLAN.md) for milestones and measured results.
+Built and tested on a Mac, with automated tests on macOS, Linux and Windows. It hasn't yet been measured between
+two separate laptops or tried on a real Windows PC, so treat speeds in this README as estimates. See [PLAN.md](PLAN.md).

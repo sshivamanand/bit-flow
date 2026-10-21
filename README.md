@@ -2,164 +2,208 @@
 
 # bit-flow
 
-**Send huge files to another laptop, fast.**<br>
-Games, videos, whole folders. 100 GB is fine. No USB drive, no internet, no accounts.
+**Move huge files between the devices in your room, as fast as the link allows.**
+
+A 40 GB game, a folder of 4K video, a whole drive's worth of photos: laptop to laptop, phone to laptop,
+phone to iPad. No USB stick, no cloud upload, no accounts, no internet.
 
 <img src="docs/img/app.jpg" alt="bit-flow sending a 12.9 GB game" width="760">
+
+[**Download**](https://github.com/sshivamanand/bit-flow/releases) ·
+[Get started](docs/getting-started.md) ·
+[Phones & the room](docs/phones.md) ·
+[Speed guide](docs/speed.md) ·
+[All guides](docs/README.md)
 
 </div>
 
 ---
 
-## What is this?
+## Why
 
-You and a friend are on the same Wi‑Fi (or plugged into the same router). You want to give them a
-10 GB game, a pile of video clips, or a whole folder. bit-flow does that directly from your laptop
-to theirs: no cloud upload, no cables to swap, and it keeps going if the Wi‑Fi hiccups.
+Cloud uploads crawl. USB sticks are never big enough. AirDrop only works between Apple devices, and most
+"send to a friend" apps choke on 100 GB.
 
-It's a small program you run on both laptops. It opens a simple page in your browser. You pick what to
-send, type a 6-digit number shown on the other laptop, and it goes.
+bit-flow is one small program. Run it on both computers, pick what to send, type the 6-digit code shown on
+the other screen, and it goes **straight from one machine to the other** over your Wi‑Fi or a cable. It's
+built for the big stuff: it uses several connections at once, survives Wi‑Fi drops, and picks up where it
+left off.
 
-## 5-minute start
+## Highlights
 
-**You need:** two computers (Mac, Windows or Linux) on the same Wi‑Fi or network.
+|  |  |
+|---|---|
+| ⚡ **Fast** | Several encrypted connections at once, compression when the link is the bottleneck, and every route between the two machines (Wi‑Fi *and* Ethernet *and* Thunderbolt) used together. On a cable, 100 GB takes minutes. |
+| 🔁 **Never starts over** | Wi‑Fi dropped? It reconnects by itself. Closed the laptop halfway? Send the same thing again and only the missing part moves. Files the other side already has are skipped. |
+| 📱 **The room** | Any phone, tablet or laptop on the Wi‑Fi opens one link and joins. Each device sees the others and can send to any of them, with nothing to install. |
+| 🎮 **Steam games** | Pick a game and it lands straight in your friend's Steam library, ready to play. Updates only send the files that changed. |
+| 🔒 **Safe by default** | A pairing code guards every transfer and everything between computers is encrypted. Nothing is saved until the receiver says yes, and nothing is overwritten unless they choose to. |
+| 🧳 **One file, no setup** | A single program for Mac, Windows and Linux. No installer, no account, no server, no tracking. A friend without bit-flow can download it from *your* laptop, no internet needed. |
 
-### 1. Get bit-flow on both computers
+## Get going in 5 minutes
 
-Go to the **[Releases page](https://github.com/sshivamanand/bit-flow/releases)** and download the file for your computer:
+**You need** two computers (Mac, Windows or Linux) on the same Wi‑Fi or router.
+
+**1. Download it on both.** Grab the file for your computer from the
+**[Releases page](https://github.com/sshivamanand/bit-flow/releases)** and unzip it:
 
 | Your computer | Download |
 |---|---|
-| Mac (2020 or newer, M1/M2/M3/M4) | `…darwin_arm64.tar.gz` |
-| Older Mac (Intel) | `…darwin_amd64.tar.gz` |
+| Mac with Apple silicon (M1 and newer) | `…darwin_arm64.tar.gz` |
+| Intel Mac | `…darwin_amd64.tar.gz` |
 | Windows PC | `…windows_amd64.zip` |
 | Linux | `…linux_amd64.tar.gz` |
 
-Unzip it. Inside is one file called `bitflow` (`bitflow.exe` on Windows). That's the whole program.
+Inside is a single file, `bitflow` (`bitflow.exe` on Windows). That's the whole program.
 
-> **Friend doesn't have it?** If *you* already have bit-flow running, they can get it from *your*
-> computer with no internet. See [Phones & browsers](docs/phones.md).
-
-### 2. Start it
-
-Open a terminal (on Mac: the *Terminal* app; on Windows: *PowerShell*), go to the folder with `bitflow`,
-and run:
+**2. Start it.** Open a terminal (*Terminal* on Mac, *PowerShell* on Windows) in that folder and run:
 
 ```bash
 ./bitflow          # Mac / Linux
+```
+
+```powershell
 .\bitflow.exe      # Windows
 ```
 
-A browser tab opens. The first time, it asks **what other devices should call you**. Type a name like
+A browser tab opens. The first time, it asks what other devices should call you. Type a name like
 `maya-laptop` and press Enter.
 
-### 3. Send something
+**3. Send.** The other laptop shows up under **nearby**. Click **files**, **folder** or **game**, type the
+**6-digit code shown on the other laptop's screen**, and they click **accept**. You'll see the speed and
+time left.
 
-1. Do steps 1–2 on the **other** laptop too.
-2. On the sending laptop, the other one shows up under **nearby**. Click **files**, **folder** or **game**
-   and choose what to send.
-3. Type the **6-digit pairing code shown on the other laptop's screen** (top right).
-4. On the other laptop, a box pops up: click **accept**. That's it. You'll see a progress bar and the speed.
+<div align="center"><img src="docs/img/offer.jpg" alt="The receiver's accept prompt for a 40.8 GB game" width="560"></div>
 
 <details>
-<summary><b>The first time you run it, your computer may show a warning</b></summary>
+<summary><b>Your computer shows a warning the first time?</b></summary>
 
-This is normal for small programs that aren't from a big company.
+That's normal for small programs that don't come from a big company.
 
-- **Mac:** if it says it "can't be opened", open Terminal and run `xattr -d com.apple.quarantine bitflow`, then try again.
-  When asked about "incoming network connections", click **Allow**.
-- **Windows:** if you see a blue "Windows protected your PC" box, click **More info → Run anyway**.
-  If the firewall asks, tick **Private networks** and click **Allow**.
-- **Linux:** nothing usually. If you use a firewall, allow port 7700.
+- **Mac:** if it says it "can't be opened", run `xattr -d com.apple.quarantine bitflow` in Terminal and try
+  again. When asked about incoming network connections, click **Allow**.
+- **Windows:** on the blue "Windows protected your PC" box, click **More info → Run anyway**. If the
+  firewall asks, tick **Private networks** and click **Allow**.
+- **Linux:** usually nothing. If you run a firewall, allow port 7700.
 </details>
 
-## If the other laptop doesn't show up
+> **Friend doesn't have bit-flow?** While yours is running, they can download it from your laptop with no
+> internet: press `p` in the app and they open the address shown. See [Phones & browsers](docs/phones.md).
 
-- Make sure bit-flow is **running** on both (the browser page is open).
-- Both must be on the **same Wi‑Fi**. Guest and hotel Wi‑Fi often block devices from seeing each other. A phone
-  hotspot works as a workaround.
-- Under **or**, type the other laptop's address (like `192.168.1.40`). Its screen shows it at the bottom.
-- More help: **[Troubleshooting](docs/troubleshooting.md)**.
+## The room: phones, tablets, any browser
 
-## Make it faster
+<img src="docs/img/room.jpg" alt="The room on a phone, with an incoming transfer" width="260" align="right">
 
-The speed limit is almost always your Wi‑Fi, not bit-flow. Two things help a lot:
+Press `p` in the app (or look at the terminal) for a QR code and an address like `http://192.168.1.40:7700`.
+Every device that opens it joins **the room**:
 
-1. **Plug one laptop into the router with a cable.** If both laptops use Wi‑Fi through the same router, every
-   byte travels the air twice. One cable can roughly **double** the speed. bit-flow tells you when this applies.
-2. **Use a cable between the laptops** (Ethernet, or Thunderbolt/USB4 on Macs) if you can. That's 10× faster
-   than Wi‑Fi or more.
+- Everyone in the room shows up in a live list.
+- Each device has its own 6-digit code on its screen. To send, tap a device, pick files, and type the code
+  shown on *that* device.
+- The receiver taps **accept & download**. Several files arrive as one zip.
+- After that, the two can send back and forth with no code.
 
-Roughly how long **100 GB** takes:
+Only the computer hosting the room needs bit-flow. Files pass through it on the way and are never stored
+there. Phones can also send straight to that computer, or download what it shares.
+[More about the room](docs/phones.md)
+
+<br clear="right">
+
+## How fast?
+
+Your Wi‑Fi is almost always the limit, not bit-flow. Rough times for **100 GB**:
 
 | Connection | Time |
 |---|---:|
-| Both laptops on Wi‑Fi (same router) | 20–50 min |
+| Both laptops on Wi‑Fi, same router | 20–50 min |
 | One laptop plugged into the router | 11–17 min |
-| Ethernet cable | about 15 min |
-| Thunderbolt cable | 1–2 min |
+| Ethernet cable between them | about 15 min |
+| Thunderbolt / USB4 cable (Macs) | 1–2 min |
 
-bit-flow also shrinks files while sending when that helps, and uses several connections at once. More in the **[Speed guide](docs/speed.md)**.
+The two easiest wins:
 
-## What it can do
+1. **Plug one laptop into the router.** When both use Wi‑Fi, every byte crosses the air twice. One cable
+   roughly doubles the speed, and bit-flow tells you when that applies.
+2. **Connect the laptops directly** with Ethernet or Thunderbolt if you can. bit-flow uses the cable *and*
+   the Wi‑Fi together.
 
-| | |
-|---|---|
-| **Resume** | Wi‑Fi dropped? It reconnects by itself. Closed the laptop? Send the same thing again later and only the missing part moves. |
-| **Skips what they already have** | Identical files aren't sent twice. |
-| **Steam games** | Click **game**, pick one, and it goes straight into your friend's Steam library. Restart Steam and it's installed. Updates only send what changed. [How](docs/games.md) |
-| **Phones** | Press `p` for a QR code. Any phone, tablet or laptop that opens it joins **the room** and can send to any other, with no install. [How](docs/phones.md) |
-| **Safe** | A pairing code protects every transfer, and everything is encrypted. Nothing is saved without the receiver clicking accept, and nothing is overwritten unless they choose to. [Details](docs/security.md) |
-| **Four colour themes** | Press `t` in the app. |
+Measured on an Apple M4: the engine alone moves 6–15 GB/s, so the network is always what's holding it back.
+More in the [speed guide](docs/speed.md).
 
-> **Cloned the repository instead?** Run `./bitflow` from its top folder. It builds itself the first time (needs [Go](https://go.dev/dl/)).
+## Prefer the terminal?
 
-## Prefer typing commands?
-
-Everything in the app also works from the terminal:
+Everything the app does also works from the command line:
 
 ```bash
-# On the receiving laptop: shows a pairing code and a device name
+# receiving laptop: prints a pairing code and its name
 bitflow recv --to ~/Downloads
 
-# On the sending laptop
+# sending laptop: finds the receiver by itself
 bitflow send ~/Games/BigGame --code 482913
+
+# send a Steam game into the other laptop's Steam library
+bitflow send --steam "Baldur's Gate 3" --code 482913
+
+# past transfers (CLI, app and phone uploads)
+bitflow history
 ```
 
-`bitflow send` finds the other laptop by itself. Add `--to their-name` if there are several. See the
-**[command reference](docs/cli.md)** for everything.
+Add `--to their-name` (or an IP address) when there are several receivers. Every command and flag is in the
+[command reference](docs/cli.md).
+
+## Not finding the other laptop?
+
+- bit-flow has to be **running on both**.
+- Both must be on the **same network**. Guest, hotel and office Wi‑Fi often stop devices from seeing each
+  other. A phone hotspot is a good workaround.
+- Type the other laptop's address (like `192.168.1.40`) into the **or** box. Its screen shows it at the
+  bottom.
+- Still stuck? See [Troubleshooting](docs/troubleshooting.md).
 
 ## Good to know
 
-- It only works on a **local network** (same Wi‑Fi or cable), never over the internet.
+- **Local network only.** It never goes over the internet, and nothing is sent to any server.
 - **One transfer at a time** per laptop. If it's busy, the sender gets a clear message.
-- Received files go to the folder you choose (default: `Downloads/bit-flow`). Change it in **settings**.
-- Nothing is sent to any server. There are no accounts and no tracking.
+- **Received files** go to `Downloads/bit-flow` unless you pick another folder in **settings**.
+- **History stays tidy.** A phone upload of 300 photos is one line, and you can expand it to see every file.
+  Remove one line with **×**, or wipe it all with **clear history**.
+- **Browser traffic in the room isn't encrypted** (plain HTTP on your Wi‑Fi). That's fine at home. On shared
+  Wi‑Fi, use the app on both computers for anything private. [Security details](docs/security.md)
 
-## All the guides
+## Guides
 
 | | |
 |---|---|
-| [Getting started](docs/getting-started.md) | Install and first transfer, in more detail |
+| [Getting started](docs/getting-started.md) | Install and your first transfer, step by step |
 | [The app](docs/app.md) | Every screen, button and keyboard shortcut |
-| [Command line](docs/cli.md) | Every command and option |
+| [Phones & browsers](docs/phones.md) | The room, phones, and giving bit-flow to a friend |
 | [Steam games](docs/games.md) | Sending games and updates |
-| [Phones & browsers](docs/phones.md) | The room (any browser to any browser), phones, and giving bit-flow to a friend |
 | [Speed guide](docs/speed.md) | Getting the most out of your setup |
+| [Command line](docs/cli.md) | Every command and option |
 | [Troubleshooting](docs/troubleshooting.md) | When something doesn't work |
-| [Security](docs/security.md) | How it keeps your files safe |
-| [Protocol](docs/protocol.md), [Development](docs/development.md), [Architecture](ARCHITECTURE.md) | For people who want to look under the hood |
+| [Security](docs/security.md) | What's protected, and how |
 
-## Under the hood (for the curious)
+## Under the hood
 
-bit-flow is a single Go program. Both laptops agree on encryption keys using the 6-digit code, then open
-several encrypted connections and split the files into pieces that all connections pull from. The receiver
-checks every piece before saving it and keeps track of what's safely written, which is what makes resume work.
-Full design: [ARCHITECTURE.md](ARCHITECTURE.md).
+bit-flow is a single Go program with no cgo. The two laptops turn the 6-digit code into shared keys with a
+PAKE (CPace), so someone else on the network can't pair even if they watch the traffic. Then they open
+several TLS 1.3 connections pinned to those keys. Files are split into 32 MB pieces (small files are packed
+together) that all connections pull from. Every piece is checked with XXH3 before it's written, and a
+journal tracks what's safely on disk. That journal is what makes resume work.
 
 <img src="docs/architecture.png" alt="Architecture diagram" width="100%">
 
+For the full story: [ARCHITECTURE.md](ARCHITECTURE.md) (design), [docs/protocol.md](docs/protocol.md) (wire
+format), [docs/development.md](docs/development.md) (building and testing) and [PLAN.md](PLAN.md)
+(milestones and measured results).
+
+**Building from source:** clone the repo and run `./bitflow` from its top folder. It builds itself the first
+time (needs [Go](https://go.dev/dl/)). Or use `make build`, `make test` and `make cross`.
+
 ## Status
 
-Built and tested on a Mac, with automated tests on macOS, Linux and Windows. It hasn't yet been measured between
-two separate laptops or tried on a real Windows PC, so treat speeds in this README as estimates. See [PLAN.md](PLAN.md).
+Built and tested on macOS, with automated tests on macOS, Linux and Windows on every change. It hasn't been
+benchmarked between two separate laptops or tried on real Windows hardware yet, so treat the speeds above as
+estimates. See [PLAN.md](PLAN.md) for what's next.
+
+<div align="center"><sub>Made by Shivam Anand.</sub></div>

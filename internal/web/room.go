@@ -587,32 +587,39 @@ func (rm *room) progress(x *rxfer) {
 
 // upload is the sender's side: PUT /room/up/{id}/{i} with file i as the body.
 func (rm *room) upload(w http.ResponseWriter, r *http.Request) {
+	// Every refusal drops the rest of the body: otherwise the server tries to
+	// drain it after we return and waits on a sender that's still streaming.
+	rc := http.NewResponseController(w)
+	refuse := func(msg string, code int) {
+		_ = rc.SetReadDeadline(time.Now())
+		http.Error(w, msg, code)
+	}
 	m, x := rm.lookup(r, r.PathValue("id"))
 	if m == nil || x == nil || x.from != m.id || r.Header.Get("X-Bitflow") != "1" {
-		http.NotFound(w, r)
+		refuse("404 page not found", http.StatusNotFound)
 		return
 	}
 	var i int
 	if _, err := fmt.Sscan(r.PathValue("i"), &i); err != nil || i < 0 || i >= len(x.files) {
-		http.Error(w, "bad file index", http.StatusBadRequest)
+		refuse("bad file index", http.StatusBadRequest)
 		return
 	}
 	select {
 	case <-x.accepted:
 	case <-x.ctx.Done():
-		http.Error(w, context.Cause(x.ctx).Error(), http.StatusConflict)
+		refuse(context.Cause(x.ctx).Error(), http.StatusConflict)
 		return
 	}
 	p := pipe{idx: i, body: r.Body, done: make(chan error, 1)}
 	select {
 	case x.pipes <- p:
 	case <-x.ctx.Done():
-		http.Error(w, context.Cause(x.ctx).Error(), http.StatusConflict)
+		refuse(context.Cause(x.ctx).Error(), http.StatusConflict)
 		return
 	case <-r.Context().Done():
 		return
 	case <-time.After(roomPipeWait):
-		http.Error(w, "the receiver isn't downloading", http.StatusGatewayTimeout)
+		refuse("the receiver isn't downloading", http.StatusGatewayTimeout)
 		return
 	}
 	// The relay reads r.Body, so this handler can't return before it's done
@@ -621,11 +628,11 @@ func (rm *room) upload(w http.ResponseWriter, r *http.Request) {
 	select {
 	case err = <-p.done:
 	case <-x.ctx.Done():
-		_ = http.NewResponseController(w).SetReadDeadline(time.Now())
+		_ = rc.SetReadDeadline(time.Now())
 		err = <-p.done // nil if the file got through before the cancel landed
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		refuse(err.Error(), http.StatusConflict)
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})

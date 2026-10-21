@@ -82,12 +82,19 @@ func TestBatchesGroupUploads(t *testing.T) {
 		t.Errorf("logged %d records: %+v", len(logged), logged)
 	}
 
-	// A gap starts a new batch.
+	// A gap starts a new batch. Wait for the batch to be logged rather than
+	// racing its timer (Windows timers are coarse).
+	closed := make(chan struct{}, 1)
+	b.Log = func(Record) error { closed <- struct{}{}; return nil }
 	b.Gap = time.Millisecond
 	id1, _ := add("x.txt", "phone")
-	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("quiet batch never closed")
+	}
 	if b.Open(id1) {
-		t.Fatal("quiet batch still open")
+		t.Fatal("quiet batch still open after it was logged")
 	}
 	if id2, isNew := add("y.txt", "phone"); !isNew || id2 == id1 {
 		t.Fatal("upload after a gap joined the old batch")

@@ -364,3 +364,40 @@ func TestRoomNamesAreUnique(t *testing.T) {
 		t.Fatalf("rename to a taken name gave %q", n)
 	}
 }
+
+// A cancel that lands before the relay takes the upload (here: before the
+// receiver even accepts) must still end the sender's request, though its
+// body is still open.
+func TestRoomCancelBeforeRelay(t *testing.T) {
+	srv := newRoomServer(t)
+	a, b := joinRoom(t, srv, "a"), joinRoom(t, srv, "b")
+	a.send(roomMsg{Type: "offer", To: b.id, Code: b.code, Files: []rfile{{Name: "big.iso", Size: 1 << 30}}})
+	x := a.wait("offered").Xfer
+	b.wait("incoming")
+
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	up := make(chan int, 1)
+	go func() {
+		res, err := a.put(x, 0, pr)
+		if err != nil {
+			up <- -1
+			return
+		}
+		res.Body.Close()
+		up <- res.StatusCode
+	}()
+	if _, err := pw.Write(make([]byte, 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	a.send(roomMsg{Type: "cancel", Xfer: x})
+	a.wait("cancelled")
+	select {
+	case code := <-up:
+		if code == http.StatusOK {
+			t.Fatal("upload reported success after cancel")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("upload request still hanging after cancel")
+	}
+}

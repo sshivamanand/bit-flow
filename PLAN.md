@@ -65,7 +65,7 @@ M2 results (Apple M4, 2026-10-21):
   Receivers choose the destination per offer (`Decision.Dest`).
 - Desktop app: `bitflow` with no arguments starts an agent (receiver + discovery + sender) and opens a web
   UI on `127.0.0.1:7710`. Vanilla HTML/JS embedded in the binary (no build step), Monkeytype-style
-  monospace design with themes (flow, ember, violet, paper). First run asks for the device name.
+  monospace design with themes (flow = lime, ember, violet, paper). First run asks for the device name.
 - Sessions: the launch URL's one-time token is traded for an HttpOnly, SameSite=Strict cookie. Sessions
   (hashed), theme, device name and transfer history persist across restarts. Host-header check
   (no DNS rebinding) and a custom header on writes (no CSRF).

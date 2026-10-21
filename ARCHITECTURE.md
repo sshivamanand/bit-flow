@@ -176,7 +176,7 @@ senders on demand. A web UI on `127.0.0.1:7710` drives it through a small JSON A
 - **Hardening**: the Host header must be the loopback address (no DNS rebinding), writes need an `X-Bitflow: 1`
   header (no cross-site forms), and a CSP blocks third-party content.
 - **Look**: Monkeytype-style. Monospace throughout, one accent colour, big stat numbers with small labels,
-  keyboard shortcuts. Themes: flow (teal), ember (orange), violet, paper (light).
+  keyboard shortcuts. Themes: flow (lime, default), ember (orange), violet, paper (light, rust).
 - **History** of finished transfers persists across restarts.
 
 ### 4.11 Bootstrap — get it onto a friend's laptop in seconds

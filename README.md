@@ -94,18 +94,19 @@ That's normal for small programs that don't come from a big company.
 
 <img src="docs/img/room.jpg" alt="The room on a phone, with an incoming transfer" width="260" align="right">
 
-Click the big **create a room here** button in the app (or press `o`). It opens the room and shows an address
-like `http://192.168.1.40:7700`, and **show qr** gives phones a code to scan. Every device that opens it joins
-**the room**:
+The app shows an invite address like `http://192.168.1.40:7700` under **nearby** (**show qr** gives phones a
+code to scan). Every device that opens it joins **the room**:
 
-- Everyone in the room shows up in a live list.
+- Phones and browsers show up in your **nearby** list, right next to bit-flow computers. Send to them like
+  anything else, and they can send to you: you get the normal accept prompt and files land in your folder.
+- Everyone in the room sees everyone else in a live list.
 - Each device has its own 6-digit code on its screen. To send, tap a device, pick files, and type the code
   shown on *that* device.
 - The receiver taps **accept & download**. Several files arrive as one zip.
 - After that, the two can send back and forth with no code.
 
-Only the computer hosting the room needs bit-flow. Files pass through it on the way and are never stored
-there. Phones can also send straight to that computer, or download what it shares.
+Only the computer hosting the room needs bit-flow. Phone-to-phone files pass through it on the way and are
+never stored there. bit-flow computers always use their own direct, encrypted path, never the browser lane.
 [More about the room](docs/phones.md)
 
 <br clear="right">

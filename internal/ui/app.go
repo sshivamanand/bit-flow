@@ -62,6 +62,7 @@ type App struct {
 	phoneURL  string // browser address on the LAN
 	phoneQR   string // SVG
 
+	room      *web.Local       // this computer in the browser room
 	uploads   history.Batches  // browser uploads, grouped per folder or run of files
 	batchRows map[string]*xfer // batch id → its row
 }
@@ -124,6 +125,7 @@ type offer struct {
 	Steam   string            `json:"steam,omitempty"`    // game name, for Steam offers
 	Library string            `json:"library,omitempty"`  // Steam library it installs into
 	OtherOS string            `json:"other_os,omitempty"` // set when the game was built for another OS
+	Via     string            `json:"via,omitempty"`      // "room": a phone or browser, through the room
 
 	decide chan transfer.Decision
 }
@@ -178,7 +180,7 @@ func (a *App) Start(ctx context.Context, port int) error {
 
 	// One port for bit-flow peers and browsers (phones, /get downloads).
 	peers, browsers := web.Split(ln)
-	srv := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: web.NewServer(web.Options{
+	webSrv := web.NewServer(web.Options{
 		Name: a.DeviceName, CheckCode: a.recv.CheckCode, Binaries: web.FindBinaries,
 		UploadDir: func() string {
 			a.mu.Lock()
@@ -186,7 +188,9 @@ func (a *App) Start(ctx context.Context, port int) error {
 			return a.cfg.ReceiveDir()
 		},
 		OnUpload: a.onBrowserUpload,
-	})}
+	})
+	a.room = webSrv.JoinRoom(a.cfg.DeviceName(), roomKind(runtime.GOOS), a.recv.CheckCode)
+	srv := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: webSrv}
 	go srv.Serve(browsers)
 	go func() {
 		<-ctx.Done()
@@ -294,6 +298,9 @@ func (a *App) confirm(o *proto.Offer, info transfer.OfferInfo) transfer.Decision
 
 // Decide answers a pending offer.
 func (a *App) Decide(id string, accept bool, dest string) error {
+	if a.decideRoom(id, accept, dest) {
+		return nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, of := range a.offers {
@@ -495,6 +502,9 @@ func (a *App) Send(to, peerName string, paths []string, code string, raw bool) (
 	if len(paths) == 0 {
 		return "", errors.New("pick something to send")
 	}
+	if id, ok := strings.CutPrefix(to, roomPrefix); ok {
+		return a.sendRoom(id, peerName, paths, code)
+	}
 	m, err := planner.Build(paths)
 	if err != nil {
 		return "", err
@@ -631,6 +641,9 @@ func (a *App) SetDeviceName(name string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.cfg.Name = strings.TrimSpace(name)
+	if a.room != nil {
+		a.room.SetName(a.cfg.DeviceName())
+	}
 	return a.cfg.Save()
 }
 
@@ -662,6 +675,9 @@ func (a *App) UpdateSettings(s Settings) error {
 	a.cfg.Conflict = policy.String()
 	err = a.cfg.Save()
 	dest := a.cfg.ReceiveDir()
+	if a.room != nil {
+		a.room.SetName(a.cfg.DeviceName())
+	}
 	a.mu.Unlock()
 	a.recv.SetDefaults(dest, policy)
 	return err
@@ -685,6 +701,7 @@ type State struct {
 	Scanning  bool             `json:"scanning"`
 	PhoneURL  string           `json:"phone_url,omitempty"`
 	PhoneQR   string           `json:"phone_qr,omitempty"`
+	RoomPeers []RoomPeer       `json:"room_peers"`
 }
 
 // Addr is one of this device's network addresses.
@@ -736,6 +753,8 @@ func (a *App) State() State {
 		PhoneURL: a.phoneURL,
 		PhoneQR:  a.phoneQR,
 	}
+	st.Offers = append(st.Offers, a.roomOffers()...)
+	st.RoomPeers = a.roomPeers()
 	for _, x := range a.transfers {
 		c := *x
 		st.Transfers = append(st.Transfers, &c)

@@ -198,7 +198,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function bytes(n) {
   const u = n >= 1e9 ? [1e9, "GB"] : n >= 1e6 ? [1e6, "MB"] : n >= 1e3 ? [1e3, "KB"] : [1, "B"];
-  return (u[0] === 1 ? n : (n / u[0]).toFixed(1)) + " " + u[1];
+  return (u[0] === 1 ? Math.round(n) : (n / u[0]).toFixed(1)) + " " + u[1];
 }
 const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? "" : "s"}`;
 const spaced = (c) => c ? c.slice(0, 3) + " " + c.slice(3) : "··· ···";
@@ -330,21 +330,25 @@ $("myName").addEventListener("keydown", (e) => { if (e.key === "Enter") $("myNam
 
 // ---- devices ----
 let info = null;
+// The bit-flow app joins the room itself (host: true). Then it's a device
+// like any other; otherwise (bitflow recv) it gets its own card below.
+const hostInRoom = () => roster.some((r) => r.host);
 function renderDevs() {
   const cards = [];
-  if (info) {
+  if (info && !hostInRoom()) {
     const what = [info.upload && "receives files", info.share && "is sharing files"].filter(Boolean).join(", ") || "runs bit-flow";
     cards.push(`<button class="dev" data-host="1"><div class="dn">${esc(info.name)}</div><div class="dk">this computer · ${esc(what)}</div>
       <div class="ds ${info.signedIn ? "ok" : ""}">${info.signedIn ? "connected" : "code needed"}</div></button>`);
   }
-  const list = [...roster].sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
+  const list = [...roster].sort((a, b) => (!!b.host - !!a.host) || (b.online - a.online) || a.name.localeCompare(b.name));
   for (const d of list) {
     cards.push(`<button class="dev${d.online ? "" : " off"}" data-id="${esc(d.id)}" ${d.online ? "" : "disabled"}>
-      <div class="dn">${esc(d.name)}</div><div class="dk">${esc(d.kind)}</div>
+      <div class="dn">${esc(d.name)}</div><div class="dk">${esc(d.kind)}${d.host ? " · runs bit-flow" : ""}</div>
       <div class="ds ${d.paired ? "ok" : ""}">${!d.online ? "away…" : d.paired ? "paired · tap to send" : "tap to send · code needed"}</div></button>`);
   }
   $("devs").innerHTML = cards.join("");
   $("devsEmpty").hidden = roster.length > 0;
+  syncHostBox();
   // A device that left can't be the target of an open send sheet.
   if (sending && !sending.busy && !roster.some((r) => r.id === sending.to && r.online)) { closeSend(); toast("that device left"); }
   if (sending) { const d = roster.find((r) => r.id === sending.to); if (d) { sending.paired = d.paired; renderSend(); } }
@@ -373,7 +377,8 @@ function renderSend() {
   if (sending.objs.length > 6) shown.push(`<div class="sub">and ${plural(sending.objs.length - 6, "more file")}</div>`);
   $("sendList").innerHTML = shown.join("");
   $("sendCodeBox").hidden = sending.paired;
-  $("sendCodeHint").textContent = `the code shown on ${sending.name}`;
+  const td = roster.find((r) => r.id === sending.to);
+  $("sendCodeHint").textContent = td && td.host ? `the pairing code shown on ${sending.name}` : `the code shown on ${sending.name}`;
   const codeOK = sending.paired || $("sendCode").value.replace(/\D/g, "").length === 6;
   $("sendGo").disabled = sending.busy || !sending.objs.length || !codeOK;
   $("sendGo").textContent = sending.busy ? "asking…" : "send";
@@ -487,15 +492,22 @@ async function loadHost() {
   info = await api("GET", "/web/info");
   $("hostTitle").textContent = "this computer · " + info.name;
   $("upName").textContent = info.name; $("shName").textContent = info.name;
-  const offers = info.upload || info.share;
-  $("hostBox").hidden = !offers;
-  $("hostWho").textContent = info.upload && info.share ? "it can receive files and is sharing some." : info.upload ? "it's ready to receive files." : info.share ? "it's sharing files." : "";
-  $("loginBox").hidden = !offers || info.signedIn;
-  $("loginHint").textContent = `enter the 6-digit pairing code shown on ${info.name}`;
-  $("uploadBox").hidden = !(info.upload && info.signedIn);
-  $("shareBox").hidden = !(info.share && info.signedIn);
+  syncHostBox();
   if (info.share && info.signedIn) loadShared();
   renderBins(); renderDevs();
+}
+// Sending to the host goes through the room when it's in it, so its own
+// upload box would just be a second way to do the same thing.
+function syncHostBox() {
+  if (!info) return;
+  const upload = info.upload && !hostInRoom();
+  const offers = upload || info.share;
+  $("hostBox").hidden = !offers;
+  $("hostWho").textContent = upload && info.share ? "it can receive files and is sharing some." : upload ? "it's ready to receive files." : info.share ? "it's sharing files." : "";
+  $("loginBox").hidden = !offers || info.signedIn;
+  $("loginHint").textContent = `enter the 6-digit pairing code shown on ${info.name}`;
+  $("uploadBox").hidden = !(upload && info.signedIn);
+  $("shareBox").hidden = !(info.share && info.signedIn);
 }
 
 function renderBins() {

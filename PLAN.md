@@ -141,6 +141,19 @@ decline, and a 375 px phone viewport.
 M8 results (2026-10-22): ten phone uploads (six photos + a four-file folder) showed as two rows. Expand,
 remove and clear checked in the app; tests cover grouping, gaps, reload, old-row merge, remove and clear.
 
+### M9 — One nearby list ✅
+- The app joins the room in-process (`web.Local`): phones and browsers appear under **nearby** next to
+  bit-flow computers (hollow dot, "browser"). Computers keep the direct encrypted path; only browsers use
+  the room.
+- Phone → app: its code is the app's pairing code (same rate limit and rotation), the normal accept prompt,
+  and files written into the receive folder (`SafeJoin`, `.bitflow-partial`, never overwriting). App → phone:
+  pick files/folder, type the code on the phone's screen (skipped once paired).
+- UI polish: the big room button became a quiet **+ invite** row with **show qr**; tidier rows, mobile layout,
+  "invite" in the nav; the room page lists the app as a device and drops the duplicate upload box.
+
+M9 results (2026-10-22): `TestAppInRoom` (phone → app → folder, app → phone, pairing) plus `web.Local` tests
+pass under `-race`. Checked in a real browser: accept prompt for a phone send, files on disk, folder back as a zip.
+
 ## Still to do (needs two real laptops)
 - Run `bitflow bench --to <ip> --sweep` and a real game transfer over Wi‑Fi, Wi‑Fi + Ethernet, and a
   Thunderbolt cable, and record the numbers here (link ceiling vs. bit-flow).

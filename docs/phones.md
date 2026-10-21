@@ -10,8 +10,10 @@ Phone, or a computer without bit-flow? Open http://192.168.1.40:7700
   ...
 ```
 
-In the app, the big **create a room here** button (or `o`) opens it for you. That page is **the room**. Only the computer hosting it needs bit-flow. Every phone, tablet or laptop that
-opens it joins, shows up in everyone else's list, and can send files to any other device in the room.
+In the app, the **+ invite** row under nearby shows it too (**show qr** for the code). That page is **the
+room**. Only the computer hosting it needs bit-flow. Every phone, tablet or laptop that opens it joins,
+shows up in everyone else's list (and in the app's **nearby**), and can send files to any other device in
+the room.
 
 ## Send between any two devices
 
@@ -39,8 +41,11 @@ Good to know:
 - **It runs at about half Wi‑Fi speed**, because the data crosses the air twice (sender → host → receiver).
   For laptop to laptop, install bit-flow on both: it's direct, encrypted and much faster.
 - **Folders** can only be picked in desktop browsers. Phones pick files.
-- The host computer itself appears as a card in the list (**this computer**). Tap it to send files to it or
-  download what it shares, with its pairing code (below).
+- **The computer running the bit-flow app is in the room too**, listed like any device ("runs bit-flow").
+  Send to it with **the pairing code on its screen**; it asks before accepting and saves into its receive
+  folder, never overwriting. It can send to phones from its own **nearby** list.
+- With `bitflow recv` or `send --wait` instead of the app, the computer appears as a **this computer** card
+  with its own upload and download page (below).
 
 ## Send files to the host computer
 

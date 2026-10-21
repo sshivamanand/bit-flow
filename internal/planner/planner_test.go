@@ -97,8 +97,9 @@ func TestBuild(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(game, "data", "empty"), 0o755))
 	must(t, os.WriteFile(filepath.Join(game, "data", "a.pak"), make([]byte, 100), 0o644))
 	must(t, os.WriteFile(filepath.Join(dir, "solo.iso"), make([]byte, 7), 0o644))
-	must(t, os.Symlink("a.pak", filepath.Join(game, "data", "link")))            // inside: sent
-	must(t, os.Symlink("../../solo.iso", filepath.Join(game, "data", "escape"))) // outside: skipped
+	must(t, os.WriteFile(filepath.Join(game, "data", ".DS_Store"), make([]byte, 9), 0o644)) // never sent
+	must(t, os.Symlink("a.pak", filepath.Join(game, "data", "link")))                       // inside: sent
+	must(t, os.Symlink("../../solo.iso", filepath.Join(game, "data", "escape")))            // outside: skipped
 
 	m, err := Build([]string{game, filepath.Join(dir, "solo.iso")})
 	must(t, err)

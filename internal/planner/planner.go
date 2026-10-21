@@ -95,7 +95,15 @@ func Build(paths []string) (*Manifest, error) {
 	return m, nil
 }
 
+// junk is OS bookkeeping nobody wants on another computer; it also appears on
+// its own (Finder writes .DS_Store when a folder is opened), which would make
+// the same folder look different between attempts.
+var junk = map[string]bool{".DS_Store": true, "Thumbs.db": true, "desktop.ini": true}
+
 func (m *Manifest) add(src, name string, info fs.FileInfo) {
+	if !info.IsDir() && junk[info.Name()] {
+		return
+	}
 	e := proto.FileEntry{Path: name, Mode: uint32(info.Mode().Perm()), MTime: info.ModTime().UnixNano()}
 	switch {
 	case info.IsDir():

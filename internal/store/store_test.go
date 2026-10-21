@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -86,5 +87,52 @@ func TestCheckLinks(t *testing.T) {
 	through := []proto.FileEntry{{Path: "G", Dir: true}, {Path: "G/d", Link: "sub"}, {Path: "G/sub", Dir: true}, {Path: "G/d/x"}}
 	if checkLinks(through) == nil {
 		t.Fatal("file written through a link accepted")
+	}
+}
+
+func TestResumeJournalRoundTrip(t *testing.T) {
+	root, state := t.TempDir(), t.TempDir()
+	entries := []proto.FileEntry{{Path: "G", Dir: true}, {Path: "G/big", Size: 1 << 20, MTime: 1_700_000_000_000_000_000}}
+	p, err := Prepare(root, entries, Options{StateDir: state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Materialize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.WriteAt(1, 0, make([]byte, 256<<10)); err != nil {
+		t.Fatal(err)
+	}
+	p.Suspend()
+
+	p2, err := Prepare(root, entries, Options{StateDir: state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p2.Already(); got != 256<<10 {
+		journals, _ := filepath.Glob(filepath.Join(state, "resume", "*"))
+		var detail []string
+		for _, j := range journals {
+			b, _ := os.ReadFile(j)
+			detail = append(detail, j+": "+string(b))
+		}
+		partial, perr := os.Stat(filepath.Join(root, "G", "big"+PartialSuffix))
+		size := int64(-1)
+		if perr == nil {
+			size = partial.Size()
+		}
+		t.Fatalf("resumed %d bytes, want %d\njournals: %v\npartial size %d (err %v)\nroot %q key %q", got, 256<<10, detail, size, perr, root, JournalKey(root, entries))
+	}
+}
+
+func TestJournalKeyIgnoresDirectoryMtimes(t *testing.T) {
+	a := []proto.FileEntry{{Path: "G", Dir: true, MTime: 1}, {Path: "G/f", Size: 5, MTime: 7}}
+	b := []proto.FileEntry{{Path: "G", Dir: true, MTime: 2}, {Path: "G/f", Size: 5, MTime: 7}}
+	if JournalKey("/d", a) != JournalKey("/d", b) {
+		t.Fatal("a directory mtime change must not change the resume key")
+	}
+	c := []proto.FileEntry{{Path: "G", Dir: true, MTime: 1}, {Path: "G/f", Size: 5, MTime: 8}}
+	if JournalKey("/d", a) == JournalKey("/d", c) {
+		t.Fatal("a file mtime change must change the resume key")
 	}
 }

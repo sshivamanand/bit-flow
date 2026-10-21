@@ -89,6 +89,9 @@ what has landed per milestone.
   fsync, then atomically write the journal.
 - **Checksums are verified before `WriteAt`.** Blocks are hashed raw (before compression); compressed frames
   carry `RawLen`, which must be ≤ the block size and match the decompressed length.
+- **The resume key (`store.JournalKey`) covers files only** (path, size, mtime, link), never directories. Directory
+  mtimes change on their own (Finder, Windows metadata) and once broke resume on Windows. The planner skips
+  `.DS_Store`, `Thumbs.db` and `desktop.ini` for the same reason.
 - **Symlinks are created last and never written through** (`store.checkLinks`). Never relax `planner.LinkInside`.
 - **Any network probe of an extra path needs a short timeout.** Some networks drop instead of refuse;
   a 10 s dial on a dead path once added 8 s to every transfer.

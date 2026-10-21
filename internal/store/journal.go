@@ -22,14 +22,20 @@ type journal struct {
 	Saved   time.Time             `json:"saved"`
 }
 
-// JournalKey identifies an offer (paths, sizes, mtimes) landing at a destination.
-// The same files sent again to the same folder get the same key, which is how
-// a reconnecting sender finds its earlier progress.
+// JournalKey identifies an offer landing at a destination by its files'
+// paths, sizes, mtimes and link targets. The same files sent again to the same
+// folder get the same key, which is how a later attempt finds earlier progress.
+// Directories are left out on purpose: their mtimes change whenever anything
+// touches them (Finder writing .DS_Store, Windows metadata updates), even
+// though no file data changed.
 func JournalKey(root string, entries []proto.FileEntry) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00", root)
 	for _, e := range entries {
-		fmt.Fprintf(h, "%s\x00%d\x00%d\x00%t\n", e.Path, e.Size, e.MTime, e.Dir)
+		if e.Dir {
+			continue
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00%d\x00%s\n", e.Path, e.Size, e.MTime, e.Link)
 	}
 	return hex.EncodeToString(h.Sum(nil)[:16])
 }

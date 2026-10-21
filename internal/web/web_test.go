@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSplitRoutesByFirstBytes(t *testing.T) {
@@ -79,6 +80,7 @@ func newFixture(t *testing.T) *fixture {
 	})
 	f.srv = httptest.NewServer(h)
 	t.Cleanup(f.srv.Close)
+	t.Cleanup(h.Close) // release unfinished uploads before TempDir cleanup
 	jar, _ := cookiejar.New(nil)
 	f.client = &http.Client{Jar: jar}
 	return f
@@ -206,6 +208,33 @@ func TestInstallerAndBinaries(t *testing.T) {
 	}
 	if !hostOK("192.168.1.40:7700") {
 		t.Fatal("normal host rejected")
+	}
+}
+
+func TestAbandonedUploadsDropped(t *testing.T) {
+	up := t.TempDir()
+	srv := NewServer(Options{Name: func() string { return "x" }, CheckCode: func(string) bool { return true }, UploadDir: func() string { return up }})
+	defer srv.Close()
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Jar: jar}
+	post := func(path, body string) {
+		req, _ := http.NewRequest("POST", ts.URL+path, strings.NewReader(body))
+		req.Header.Set("X-Bitflow", "1")
+		res, err := c.Do(req)
+		must(t, err)
+		res.Body.Close()
+	}
+	post("/web/login", `{"code":"1"}`)
+	post("/web/upload", `{"name":"half.bin","size":100}`)
+	partial := filepath.Join(up, "half.bin.bitflow-partial")
+	if _, err := os.Stat(partial); err != nil {
+		t.Fatal("partial file should exist while the upload is open")
+	}
+	srv.s.dropUploads(func(u *upload) bool { return time.Since(u.touched) >= 0 }) // as if idle long enough
+	if _, err := os.Stat(partial); err == nil {
+		t.Fatal("abandoned upload's partial file should be removed")
 	}
 }
 

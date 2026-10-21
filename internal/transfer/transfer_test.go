@@ -368,7 +368,8 @@ func TestResumeAfterSenderVanishes(t *testing.T) {
 	m, _ := planner.Build([]string{src})
 
 	// Deliver the first 2 MiB of big.pak, then disappear.
-	addr, done := startReceiver(t, &Receiver{Dest: dst, StateDir: state}, true)
+	r1 := &Receiver{Dest: dst, StateDir: state}
+	addr, done := startReceiver(t, r1, true)
 	o := testOpts()
 	offer := proto.Offer{From: "flaky", Files: m.Files, Total: m.Total, Streams: 1, BlockSize: o.BlockSize}
 	ctrl, data := fakeSender(t, addr, offer)
@@ -387,7 +388,13 @@ func TestResumeAfterSenderVanishes(t *testing.T) {
 		_, err := data.Write(frame)
 		must(t, err)
 	}
-	time.Sleep(200 * time.Millisecond) // let the blocks reach the partial file
+	// Wait until the receiver has written them (slow file creation on Windows CI made a fixed sleep flaky).
+	for deadline := time.Now().Add(10 * time.Second); r1.Stats().Received < 2<<20; {
+		if time.Now().After(deadline) {
+			t.Fatalf("receiver only has %d bytes", r1.Stats().Received)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	data.Close()
 	ctrl.Close()
 	select {

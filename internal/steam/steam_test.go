@@ -3,6 +3,7 @@ package steam
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -25,17 +26,19 @@ func fakeSteam(t *testing.T) (root, lib2 string) {
 			t.Fatal(err)
 		}
 	}
+	// Steam escapes backslashes in Windows paths ("C:\\Steam").
+	vdfPath := func(p string) string { return strings.ReplaceAll(p, `\`, `\\`) }
 	write(filepath.Join(root, "steamapps", "libraryfolders.vdf"), `"libraryfolders"
 {
 	// a comment
 	"0"
 	{
-		"path"		"`+root+`"
+		"path"		"`+vdfPath(root)+`"
 		"apps" { "620" "123" }
 	}
 	"1"
 	{
-		"path"		"`+lib2+`"
+		"path"		"`+vdfPath(lib2)+`"
 	}
 }`)
 	manifest := func(lib, id, name, dir, flags string) {

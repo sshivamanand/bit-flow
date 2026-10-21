@@ -2,9 +2,11 @@
 //
 // Every TCP connection starts with a fixed 24-byte Hello identifying it as the
 // session's control connection or as one of its N data streams. The control
-// connection then carries length-prefixed JSON messages (offer, accept,
-// progress, complete, error). Data streams carry back-to-back frames: a fixed
-// 33-byte header followed by the block payload, terminated by an END frame.
+// connection then pairs (see package secure), upgrades to TLS, and carries
+// length-prefixed JSON messages (offer, accept, progress, complete, error).
+// Data streams carry back-to-back frames: a fixed 33-byte header followed by
+// the block payload, terminated by an END frame. A PACK frame carries several
+// whole small files.
 package proto
 
 import (
@@ -19,7 +21,7 @@ import (
 
 const (
 	Magic       = "BFLW"
-	Version     = 1
+	Version     = 2
 	DefaultPort = 7700
 )
 
@@ -103,26 +105,49 @@ type Offer struct {
 	BlockSize int         `json:"block"`
 	Bench     bool        `json:"bench,omitempty"`  // synthetic data, receiver discards it
 	NoHash    bool        `json:"nohash,omitempty"` // skip per-block checksums
+	Raw       bool        `json:"raw,omitempty"`    // sender asks for unencrypted data streams
+}
+
+// Range is a byte range [Off, Off+Len) of one file.
+type Range struct {
+	Off int64 `json:"o"`
+	Len int64 `json:"l"`
+}
+
+// FileRanges lists the ranges of a file the receiver already holds.
+type FileRanges struct {
+	File   uint32  `json:"f"`
+	Ranges []Range `json:"r"`
 }
 
 type Accept struct {
 	OK     bool   `json:"ok"`
 	Reason string `json:"reason,omitempty"`
+	Raw    bool   `json:"raw,omitempty"` // data streams skip TLS (both sides opted in)
+	Dest   string `json:"dest,omitempty"`
+
+	// Resume / dedupe: the sender must not send these.
+	Skip []uint32     `json:"skip,omitempty"` // files already complete at the receiver
+	Have []FileRanges `json:"have,omitempty"` // partially received files
+	// Already is the byte count covered by Skip and Have.
+	Already int64 `json:"already,omitempty"`
 }
 
-// Progress reports bytes the receiver has verified and handed to the OS.
+// Progress reports bytes the receiver holds, including Accept.Already.
 type Progress struct {
 	Bytes int64 `json:"bytes"`
 }
 
 type Complete struct {
-	Bytes     int64 `json:"bytes"`
+	Bytes     int64 `json:"bytes"` // transferred in this session
+	Already   int64 `json:"already,omitempty"`
 	Files     int   `json:"files"`
 	ElapsedNS int64 `json:"elapsed_ns"`
 }
 
 type ErrorMsg struct {
 	Message string `json:"message"`
+	Fatal   bool   `json:"fatal,omitempty"` // retrying the same offer cannot succeed
 }
 
 func WriteMsg(w io.Writer, t MsgType, v any) error {
@@ -164,7 +189,33 @@ func Decode(body []byte, v any) error { return json.Unmarshal(body, v) }
 // FrameHeaderSize is file(4) + offset(8) + len(4) + flags(1) + checksum(16).
 const FrameHeaderSize = 4 + 8 + 4 + 1 + 16
 
-const FlagEnd uint8 = 1 << 0 // last frame on this stream; no payload
+const (
+	FlagEnd  uint8 = 1 << 0 // last frame on this stream; no payload
+	FlagPack uint8 = 1 << 1 // payload is a pack of whole small files
+)
+
+// PackEntryHeader precedes each file inside a pack payload: file u32, size u32.
+const PackEntryHeader = 8
+
+// PutPackEntry writes a pack entry header into b.
+func PutPackEntry(b []byte, file uint32, size uint32) {
+	binary.BigEndian.PutUint32(b[0:], file)
+	binary.BigEndian.PutUint32(b[4:], size)
+}
+
+// NextPackEntry splits the first file off a pack payload.
+func NextPackEntry(p []byte) (file uint32, data, rest []byte, err error) {
+	if len(p) < PackEntryHeader {
+		return 0, nil, nil, errors.New("truncated pack entry")
+	}
+	file = binary.BigEndian.Uint32(p[0:])
+	size := binary.BigEndian.Uint32(p[4:])
+	p = p[PackEntryHeader:]
+	if uint64(size) > uint64(len(p)) {
+		return 0, nil, nil, errors.New("pack entry overruns payload")
+	}
+	return file, p[:size], p[size:], nil
+}
 
 type FrameHeader struct {
 	File   uint32

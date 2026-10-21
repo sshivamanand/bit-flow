@@ -38,11 +38,21 @@ M1 results (Apple M4, 2026-10-21):
 - Small files alone: ~10k files/s (590 MB/s at 32 streams). Packs in M2 will raise this.
 - Still to do: run `bitflow bench --to <ip> --sweep` and a real send between two laptops on Wi-Fi + cable, and compare with iperf3.
 
-### M2 — Robust
-- Small-file packs + parallel writer pool (game folders).
-- Resume journal + reconnect.
-- PAKE pairing + pinned TLS 1.3 on all streams; `--raw` for trusted cables.
-- Conflict policy, skip-identical, free-space check, keep-awake.
+### M2 — Robust ✅
+- Small-file packs (≤ 1 MiB files batched into ≤ 4 MiB frames) + 16-worker parallel writer on the receiver.
+- Resume journal (`~/Library/Caches/bitflow/resume/…` / `%LocalAppData%` / `~/.cache`), checkpointed every 3 s
+  (snapshot → fsync → atomic write). Sender reconnects automatically (10 retries, backoff to 10 s), and the
+  receiver replaces its own dead session when the same offer reconnects.
+- Pairing: 6-digit code → CPace PAKE → both TLS 1.3 certificates pinned. 5 wrong codes rotate the code; each
+  failure costs 1 s. `--raw` (sender) + `--allow-raw` (receiver): HMAC-authenticated, unencrypted data streams.
+- Conflict policy `--on-conflict=error|skip|rename|overwrite`, identical files always skipped, free-space check,
+  preallocation (`F_PREALLOCATE` / `fallocate`), keep-awake (`caffeinate` / `systemd-inhibit` / `SetThreadExecutionState`).
+- 30 s stall detection on both sides (read/write deadlines + sender watchdog).
+
+M2 results (Apple M4, 2026-10-21):
+- Loopback engine, TLS 1.3: **5–6 GB/s** (2.8 GB/s on one stream); raw: ~9 GB/s. Encryption is free at real link speeds.
+- 20,000 small files: 443 → **561 MB/s** at 8 streams with packs (TLS on); 662 MB/s at 32 streams. File creation is now the limit.
+- 8 GB file + 20,000 small files, same SSD: 0.95 GB/s TLS, 1.09 GB/s raw.
 
 ### M3 — Discovery + UI
 - Multicast / mDNS / subnet scan / QR; either side can listen.

@@ -66,13 +66,16 @@ Each peer advertises **all** its interface addresses (Wi‑Fi, Ethernet, Thunder
 listens and the receiver dials. Which side connects is independent of which side sends data.
 
 ### 4.2 Pairing & security
-- Receiver shows a **6-digit code**. The sender types it, or scans a QR code.
-- The code feeds a **PAKE** (as croc does), which produces a shared key without ever sending the code.
-  That key authenticates both peers' self-signed **TLS 1.3** certificate fingerprints, which are then pinned.
-- Every stream (control + data) is TLS 1.3 with AES‑GCM. Hardware AES runs at several GB/s per core on
-  Apple Silicon and modern x86, so encryption is effectively free at Wi‑Fi speeds.
-- **Raw mode** (`--raw`, trusted direct cable only): authenticated but unencrypted streams. This enables
-  zero-copy `sendfile` for multi-GB/s Thunderbolt links.
+- The receiver shows a **6-digit code**, and the sender passes it (`--code`) or is prompted for it.
+- The code feeds **CPace** (`filippo.io/cpace`, a balanced PAKE over ristretto255). Both sides get a shared key,
+  eavesdroppers learn nothing, and an active attacker gets one guess per connection (no offline brute force).
+- Each side MACs the handshake transcript plus its ephemeral self-signed certificate's SHA-256 fingerprint with
+  a key derived from the PAKE key. A wrong code is detected right there on both sides.
+- The control connection then upgrades to **TLS 1.3**, with both certificates pinned to the exchanged fingerprints.
+  Every data stream does the same. Go uses AES-GCM with hardware AES: 2.8 GB/s per stream on an M4.
+- **Raw mode** (`send --raw` + `recv --allow-raw`, trusted direct cable only): data streams skip TLS but must
+  present `HMAC(key, session‖stream)`, so they're authenticated, just not encrypted.
+- Online guessing: 5 wrong codes rotate the code, and every failure costs 1 s while pairing attempts are serialized.
 - Filenames are sanitized on the receiver (no `..`, absolute paths, or reserved Windows names).
 
 ### 4.3 Control plane (1 TLS connection)
@@ -101,8 +104,8 @@ The receiver also checks free space before accepting.
   reading 100 GB twice would double the time. Hashing happens inline as data streams.
 - Work units:
   - **Chunk** = 32 MiB slice of a large file. This is the unit for scheduling and resume. 100 GB ≈ 3,200 chunks.
-  - **Pack** = many small files (< 4 MiB each) concatenated up to ~32 MiB. Games ship tens of thousands of
-    small files, and per-file round trips would kill throughput.
+  - **Pack** = whole small files (≤ 1 MiB each) concatenated into one frame of ≤ 4 MiB. Games ship tens of
+    thousands of small files, and per-file round trips would kill throughput.
 - One **shared work queue**. Workers pull the next unit as they free up (work stealing), so faster
   streams and paths automatically carry more.
 - Ordering: largest files first, packs interleaved, so the tail end never stalls on one giant file.
@@ -149,7 +152,9 @@ pull from one queue, adding a cable mid-transfer just makes things faster. Losin
   It catches corruption; TLS (M2) catches tampering, so a cryptographic hash per block isn't needed.
 - The receiver keeps a **journal** (`.bitflow/journal`) with a per-chunk bitmap, saved to disk (fsync) every few seconds.
 - After a drop (Wi‑Fi blip, laptop sleep), the peers reconnect. The receiver sends its have-bitmap in `ACCEPT`, and only missing chunks are sent.
-- **Skip identical**: same size + mtime → skip. Optionally confirm with a hash (`--verify-existing`).
+- **Skip identical**: same size + mtime (±2 s) → skip, under every policy except `overwrite`.
+- **Reconnect**: the sender retries dropped attempts with backoff. The receiver recognizes the same offer at the
+  same destination (journal key = hash of paths, sizes, mtimes and destination) and replaces its own stale session.
 
 ### 4.10 Topology advisor
 Detects and tells the user, in one line, what to do:

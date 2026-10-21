@@ -14,16 +14,21 @@ import (
 
 	"github.com/sshivamanand/bit-flow/internal/planner"
 	"github.com/sshivamanand/bit-flow/internal/proto"
+	"github.com/sshivamanand/bit-flow/internal/secure"
 )
 
 // Options tune the sender. Zero values mean defaults.
 type Options struct {
 	Name      string // shown to the receiver
+	Code      string // pairing code shown by the receiver
 	Streams   int
 	ChunkSize int64
 	BlockSize int
 	NoHash    bool
+	Raw       bool // ask for unencrypted data streams (receiver must allow it)
 	SockBuf   int
+	Retries   int // reconnect attempts after a dropped connection; 0 = default, <0 = none
+	OnRetry   func(attempt int, err error, wait time.Duration)
 }
 
 func (o *Options) fill() {
@@ -39,22 +44,36 @@ func (o *Options) fill() {
 	if o.BlockSize <= 0 {
 		o.BlockSize = DefaultBlockSize
 	}
+	switch {
+	case o.Retries == 0:
+		o.Retries = DefaultRetries
+	case o.Retries < 0:
+		o.Retries = 0
+	}
 }
 
 // SendStats is a live snapshot of a running send.
 type SendStats struct {
 	Accepted  bool
-	Sent      int64 // written to sockets
-	Committed int64 // verified and written by the receiver
+	Sent      int64 // written to sockets in the current attempt
+	Committed int64 // held by the receiver (including what it already had)
 	Total     int64
 }
 
 type Sender struct {
-	opts      Options
+	opts Options
+
+	idOnce sync.Once
+	id     *secure.Identity
+	idErr  error
+
 	accepted  atomic.Bool
 	sent      atomic.Int64
 	committed atomic.Int64
 	total     atomic.Int64
+
+	firstAccept  atomic.Int64 // unix nanos of the first accepted attempt
+	firstAlready atomic.Int64
 }
 
 func NewSender(opts Options) *Sender {
@@ -71,14 +90,52 @@ func (s *Sender) Stats() SendStats {
 	}
 }
 
-// Send offers the manifest to the receiver at addr and, once accepted, streams it.
+func (s *Sender) identity() (*secure.Identity, error) {
+	s.idOnce.Do(func() { s.id, s.idErr = secure.NewIdentity() })
+	return s.id, s.idErr
+}
+
+// Send offers the manifest to the receiver at addr and, once accepted, streams
+// it. Dropped connections are retried; the receiver resumes where it stopped.
 func (s *Sender) Send(ctx context.Context, addr string, m *planner.Manifest) (Result, error) {
 	if err := s.validate(); err != nil {
 		return Result{}, err
 	}
 	offer := s.offer(m.Total)
 	offer.Files = m.Files
-	return s.run(ctx, addr, offer, m.Units(s.opts.ChunkSize), fileSource(m.Sources))
+	plan := func(a *proto.Accept) []planner.Unit {
+		skip := make(map[uint32]bool, len(a.Skip))
+		for _, f := range a.Skip {
+			skip[f] = true
+		}
+		have := make(map[uint32][]proto.Range, len(a.Have))
+		for _, h := range a.Have {
+			have[h.File] = h.Ranges
+		}
+		return m.Units(s.opts.ChunkSize, s.opts.BlockSize, skip, have)
+	}
+	src := fileSource{paths: m.Sources, files: m.Files}
+
+	for attempt := 1; ; attempt++ {
+		c, err := s.attempt(ctx, addr, offer, plan, src)
+		if err == nil {
+			return s.result(c), nil
+		}
+		// Retry only transfers that got going: before the first accept, an error
+		// means a wrong address or a receiver that isn't running, so fail fast.
+		if IsPermanent(err) || ctx.Err() != nil || attempt > s.opts.Retries || s.firstAccept.Load() == 0 {
+			return Result{}, err
+		}
+		wait := min(time.Duration(1<<(attempt-1))*time.Second, 10*time.Second)
+		if s.opts.OnRetry != nil {
+			s.opts.OnRetry(attempt, err, wait)
+		}
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return Result{}, err
+		}
+	}
 }
 
 // Bench streams size bytes of synthetic data that the receiver verifies and discards.
@@ -93,7 +150,22 @@ func (s *Sender) Bench(ctx context.Context, addr string, size int64) (Result, er
 	for off := int64(0); off < size; off += s.opts.ChunkSize {
 		units = append(units, planner.Unit{Offset: off, Len: min(s.opts.ChunkSize, size-off)})
 	}
-	return s.run(ctx, addr, offer, units, newSynthSource(s.opts.BlockSize))
+	plan := func(*proto.Accept) []planner.Unit { return units }
+	c, err := s.attempt(ctx, addr, offer, plan, newSynthSource(s.opts.BlockSize))
+	if err != nil {
+		return Result{}, err
+	}
+	return s.result(c), nil
+}
+
+func (s *Sender) result(c proto.Complete) Result {
+	already := s.firstAlready.Load()
+	return Result{
+		Bytes:   s.total.Load() - already,
+		Already: already,
+		Files:   c.Files,
+		Elapsed: time.Since(time.Unix(0, s.firstAccept.Load())),
+	}
 }
 
 func (s *Sender) validate() error {
@@ -102,6 +174,9 @@ func (s *Sender) validate() error {
 	}
 	if s.opts.Streams > MaxStreams {
 		return fmt.Errorf("at most %d streams", MaxStreams)
+	}
+	if s.opts.Code == "" {
+		return errors.New("a pairing code is required (shown by the receiver)")
 	}
 	return nil
 }
@@ -113,94 +188,93 @@ func (s *Sender) offer(total int64) proto.Offer {
 		Streams:   s.opts.Streams,
 		BlockSize: s.opts.BlockSize,
 		NoHash:    s.opts.NoHash,
+		Raw:       s.opts.Raw,
 	}
 }
 
-func (s *Sender) run(ctx context.Context, addr string, offer proto.Offer, units []planner.Unit, src source) (Result, error) {
+// attempt runs one connection's worth of a transfer: pair, offer, stream.
+func (s *Sender) attempt(ctx context.Context, addr string, offer proto.Offer, plan func(*proto.Accept) []planner.Unit, src source) (proto.Complete, error) {
+	id, err := s.identity()
+	if err != nil {
+		return proto.Complete{}, permanent(err)
+	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	s.accepted.Store(false)
+	s.sent.Store(0)
 
 	var sid proto.SessionID
 	if _, err := rand.Read(sid[:]); err != nil {
-		return Result{}, err
+		return proto.Complete{}, err
 	}
 
-	ctrl, err := dial(ctx, addr, 0)
+	conn, err := dial(ctx, addr, 0)
 	if err != nil {
-		return Result{}, fmt.Errorf("connect to receiver: %w", err)
+		return proto.Complete{}, fmt.Errorf("connect to receiver: %w", err)
 	}
-	defer ctrl.Close()
-	defer closeOnDone(ctx, ctrl)()
+	defer conn.Close()
+	defer closeOnDone(ctx, conn)()
 
-	if err := proto.WriteHello(ctrl, proto.Hello{Kind: proto.KindControl, Session: sid}); err != nil {
-		return Result{}, err
+	// Pair over the plain connection, then switch it to pinned TLS.
+	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
+	if err := proto.WriteHello(conn, proto.Hello{Kind: proto.KindControl, Session: sid}); err != nil {
+		return proto.Complete{}, err
 	}
+	paired, err := secure.PairDialer(conn, s.opts.Code, sid, id)
+	if errors.Is(err, secure.ErrWrongCode) {
+		return proto.Complete{}, permanent(fmt.Errorf("%w: check the code shown on the receiver", err))
+	}
+	if err != nil {
+		return proto.Complete{}, fmt.Errorf("pairing: %w", err)
+	}
+	ctrl := id.Client(conn, paired.PeerFP)
+	if err := ctrl.HandshakeContext(ctx); err != nil {
+		return proto.Complete{}, fmt.Errorf("secure channel: %w", err)
+	}
+	_ = conn.SetDeadline(time.Time{})
+
 	if err := proto.WriteMsg(ctrl, proto.MsgOffer, offer); err != nil {
-		return Result{}, err
+		return proto.Complete{}, err
 	}
-
 	// Wait for the receiver to accept (a human may be deciding).
 	typ, body, err := proto.ReadMsg(ctrl)
 	if err != nil {
 		if ctx.Err() != nil {
-			return Result{}, context.Cause(ctx)
+			return proto.Complete{}, context.Cause(ctx)
 		}
-		return Result{}, fmt.Errorf("waiting for receiver: %w", err)
+		return proto.Complete{}, fmt.Errorf("waiting for receiver: %w", err)
 	}
+	var accept proto.Accept
 	switch typ {
 	case proto.MsgAccept:
-		var a proto.Accept
-		if err := proto.Decode(body, &a); err != nil {
-			return Result{}, err
+		if err := proto.Decode(body, &accept); err != nil {
+			return proto.Complete{}, err
 		}
-		if !a.OK {
-			return Result{}, fmt.Errorf("receiver declined: %s", a.Reason)
+		if !accept.OK {
+			return proto.Complete{}, permanent(fmt.Errorf("receiver declined: %s", accept.Reason))
 		}
 	case proto.MsgError:
-		return Result{}, remoteError(body)
+		return proto.Complete{}, remoteError(body)
 	default:
-		return Result{}, fmt.Errorf("unexpected message %d from receiver", typ)
+		return proto.Complete{}, fmt.Errorf("unexpected message %d from receiver", typ)
 	}
+	units := plan(&accept)
 	s.total.Store(offer.Total)
-	s.accepted.Store(true)
-	start := time.Now()
-
-	// Open the data streams in parallel.
-	conns := make([]net.Conn, offer.Streams)
-	var dialErr error
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	for i := range conns {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			c, err := dial(ctx, addr, s.opts.SockBuf)
-			if err == nil {
-				err = proto.WriteHello(c, proto.Hello{Kind: proto.KindData, Session: sid, Stream: uint16(i)})
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				if c != nil {
-					c.Close()
-				}
-				if dialErr == nil {
-					dialErr = err
-				}
-				return
-			}
-			conns[i] = c
-		}()
+	s.committed.Store(accept.Already)
+	if s.firstAccept.CompareAndSwap(0, time.Now().UnixNano()) {
+		s.firstAlready.Store(accept.Already)
 	}
-	wg.Wait()
+	s.accepted.Store(true)
+
+	conns, err := s.openStreams(ctx, addr, sid, offer.Streams, accept.Raw, paired, id)
 	for _, c := range conns {
 		if c != nil {
 			defer c.Close()
 			defer closeOnDone(ctx, c)()
 		}
 	}
-	if dialErr != nil {
-		return Result{}, fmt.Errorf("open data streams: %w", dialErr)
+	if err != nil {
+		return proto.Complete{}, fmt.Errorf("open data streams: %w", err)
 	}
 
 	// Control reader: progress, completion, remote errors.
@@ -221,7 +295,7 @@ func (s *Sender) run(ctx context.Context, addr string, offer proto.Offer, units 
 			case proto.MsgComplete:
 				var c proto.Complete
 				_ = proto.Decode(body, &c)
-				s.committed.Store(c.Bytes)
+				s.committed.Store(c.Bytes + c.Already)
 				complete <- c
 				return
 			case proto.MsgError:
@@ -230,6 +304,7 @@ func (s *Sender) run(ctx context.Context, addr string, offer proto.Offer, units 
 			}
 		}
 	}()
+	go s.watchdog(ctx, cancel, offer.Total)
 
 	// Shared work queue: every stream pulls the next unit when it's free.
 	queue := make(chan planner.Unit, len(units))
@@ -239,6 +314,7 @@ func (s *Sender) run(ctx context.Context, addr string, offer proto.Offer, units 
 	close(queue)
 
 	pool := newBufPool(offer.BlockSize)
+	var wg sync.WaitGroup
 	for _, c := range conns {
 		wg.Add(1)
 		go func() {
@@ -250,21 +326,82 @@ func (s *Sender) run(ctx context.Context, addr string, offer proto.Offer, units 
 	}
 	wg.Wait()
 	if ctx.Err() != nil {
-		return Result{}, context.Cause(ctx)
+		return proto.Complete{}, context.Cause(ctx)
 	}
 
 	select {
 	case c := <-complete:
-		return Result{Bytes: c.Bytes, Files: c.Files, Elapsed: time.Since(start)}, nil
+		return c, nil
 	case <-ctx.Done():
-		return Result{}, context.Cause(ctx)
+		return proto.Complete{}, context.Cause(ctx)
+	}
+}
+
+// openStreams dials n data connections in parallel and authenticates each one.
+func (s *Sender) openStreams(ctx context.Context, addr string, sid proto.SessionID, n int, raw bool, paired secure.Paired, id *secure.Identity) ([]net.Conn, error) {
+	conns := make([]net.Conn, n)
+	var errs firstError
+	var wg sync.WaitGroup
+	for i := range conns {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c, err := dial(ctx, addr, s.opts.SockBuf)
+			if err != nil {
+				errs.set(err)
+				return
+			}
+			conns[i] = c
+			_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
+			if err := proto.WriteHello(c, proto.Hello{Kind: proto.KindData, Session: sid, Stream: uint16(i)}); err != nil {
+				errs.set(err)
+				return
+			}
+			if raw {
+				tok := secure.StreamToken(paired.Key, sid, uint16(i))
+				if _, err := c.Write(tok[:]); err != nil {
+					errs.set(err)
+					return
+				}
+			} else {
+				tc := id.Client(c, paired.PeerFP)
+				if err := tc.HandshakeContext(ctx); err != nil {
+					errs.set(err)
+					return
+				}
+				conns[i] = tc
+			}
+			_ = conns[i].SetDeadline(time.Time{})
+		}()
+	}
+	wg.Wait()
+	return conns, errs.get()
+}
+
+// watchdog cancels the attempt if the receiver stops making progress.
+func (s *Sender) watchdog(ctx context.Context, cancel context.CancelCauseFunc, total int64) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	last, since := s.committed.Load(), time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if c := s.committed.Load(); c != last || c >= total {
+			last, since = c, time.Now()
+		} else if time.Since(since) > idleTimeout {
+			cancel(fmt.Errorf("transfer stalled: no progress for %s", idleTimeout))
+			return
+		}
 	}
 }
 
 type outBlock struct {
-	hdr  [proto.FrameHeaderSize]byte
-	data []byte
-	buf  *[]byte // returned to the pool after sending; nil for synthetic data
+	frame []byte // header + payload
+	n     int64  // file bytes carried
+	buf   *[]byte
 }
 
 // stream runs one data stream: a producer goroutine reads and checksums blocks
@@ -278,15 +415,13 @@ func (s *Sender) stream(ctx context.Context, conn net.Conn, queue <-chan planner
 	}()
 
 	for b := range ch {
-		bufs := net.Buffers{b.hdr[:], b.data} // header + block in one writev syscall
-		_, err := bufs.WriteTo(conn)
-		if b.buf != nil {
-			pool.put(b.buf)
-		}
+		_ = conn.SetWriteDeadline(time.Now().Add(idleTimeout))
+		_, err := conn.Write(b.frame)
+		pool.put(b.buf)
 		if err != nil {
-			return err // run cancels the session, which stops the producer
+			return err // the attempt is cancelled, which stops the producer
 		}
-		s.sent.Add(int64(len(b.data)))
+		s.sent.Add(b.n)
 	}
 	if err := <-errc; err != nil {
 		return err
@@ -298,9 +433,29 @@ func (s *Sender) stream(ctx context.Context, conn net.Conn, queue <-chan planner
 }
 
 func produce(ctx context.Context, queue <-chan planner.Unit, src source, pool *bufPool, offer proto.Offer, ch chan<- outBlock) error {
+	const H = proto.FrameHeaderSize
+	emit := func(b outBlock) bool {
+		select {
+		case ch <- b:
+			return true
+		case <-ctx.Done():
+			pool.put(b.buf)
+			return false
+		}
+	}
 	for u := range queue {
 		if ctx.Err() != nil {
 			return nil
+		}
+		if u.Pack != nil {
+			b, err := readPack(u, src, pool, offer.NoHash)
+			if err != nil {
+				return err
+			}
+			if !emit(b) {
+				return nil
+			}
+			continue
 		}
 		r, err := src.open(u.File)
 		if err != nil {
@@ -309,23 +464,19 @@ func produce(ctx context.Context, queue <-chan planner.Unit, src source, pool *b
 		end := u.Offset + u.Len
 		for off := u.Offset; off < end; {
 			n := int(min(int64(offer.BlockSize), end-off))
-			data, buf, err := r.readBlock(pool, off, n)
-			if err != nil {
+			buf := pool.get()
+			frame := (*buf)[:H+n]
+			if err := readFull(r, frame[H:], off); err != nil {
+				pool.put(buf)
 				r.Close()
 				return err
 			}
-			b := outBlock{data: data, buf: buf}
 			h := proto.FrameHeader{File: u.File, Offset: uint64(off), Len: uint32(n)}
 			if !offer.NoHash {
-				h.Sum = proto.Checksum(data)
+				h.Sum = proto.Checksum(frame[H:])
 			}
-			h.Put(b.hdr[:])
-			select {
-			case ch <- b:
-			case <-ctx.Done():
-				if buf != nil {
-					pool.put(buf)
-				}
+			h.Put(frame)
+			if !emit(outBlock{frame: frame, n: int64(n), buf: buf}) {
 				r.Close()
 				return nil
 			}
@@ -336,45 +487,68 @@ func produce(ctx context.Context, queue <-chan planner.Unit, src source, pool *b
 	return nil
 }
 
+// readPack reads whole small files into one PACK frame.
+func readPack(u planner.Unit, src source, pool *bufPool, noHash bool) (outBlock, error) {
+	const H = proto.FrameHeaderSize
+	buf := pool.get()
+	b := *buf
+	p := H
+	for _, f := range u.Pack {
+		size := int(src.size(f))
+		r, err := src.open(f)
+		if err != nil {
+			pool.put(buf)
+			return outBlock{}, err
+		}
+		proto.PutPackEntry(b[p:], f, uint32(size))
+		err = readFull(r, b[p+proto.PackEntryHeader:p+proto.PackEntryHeader+size], 0)
+		r.Close()
+		if err != nil {
+			pool.put(buf)
+			return outBlock{}, err
+		}
+		p += proto.PackEntryHeader + size
+	}
+	h := proto.FrameHeader{Flags: proto.FlagPack, Len: uint32(p - H)}
+	if !noHash {
+		h.Sum = proto.Checksum(b[H:p])
+	}
+	h.Put(b)
+	return outBlock{frame: b[:p], n: u.Len, buf: buf}, nil
+}
+
 // ---- sources ----
 
 type source interface {
-	open(file uint32) (blockReader, error)
+	open(file uint32) (fileReader, error)
+	size(file uint32) int64
 }
 
-type blockReader interface {
-	readBlock(pool *bufPool, off int64, n int) (data []byte, buf *[]byte, err error)
-	Close() error
+type fileReader interface {
+	io.ReaderAt
+	io.Closer
+	Name() string
 }
 
-// fileSource reads blocks from the sender's files.
-type fileSource []string
-
-func (fs fileSource) open(file uint32) (blockReader, error) {
-	f, err := os.Open(fs[file])
-	if err != nil {
-		return nil, err
-	}
-	return fileReader{f}, nil
-}
-
-type fileReader struct{ f *os.File }
-
-func (r fileReader) readBlock(pool *bufPool, off int64, n int) ([]byte, *[]byte, error) {
-	buf := pool.get()
-	data := (*buf)[:n]
-	got, err := r.f.ReadAt(data, off)
-	if got < n {
-		pool.put(buf)
+func readFull(r fileReader, p []byte, off int64) error {
+	n, err := r.ReadAt(p, off)
+	if n < len(p) {
 		if err == nil || errors.Is(err, io.EOF) {
-			err = fmt.Errorf("%s shrank while being sent", r.f.Name())
+			err = fmt.Errorf("%s shrank while being sent", r.Name())
 		}
-		return nil, nil, err
+		return err
 	}
-	return data, buf, nil
+	return nil
 }
 
-func (r fileReader) Close() error { return r.f.Close() }
+// fileSource reads the sender's files.
+type fileSource struct {
+	paths []string
+	files []proto.FileEntry
+}
+
+func (fs fileSource) open(file uint32) (fileReader, error) { return os.Open(fs.paths[file]) }
+func (fs fileSource) size(file uint32) int64               { return fs.files[file].Size }
 
 // synthSource serves the same random block forever (bench mode, no disk).
 type synthSource struct{ block []byte }
@@ -385,16 +559,20 @@ func newSynthSource(blockSize int) synthSource {
 	return synthSource{block: b}
 }
 
-func (s synthSource) open(uint32) (blockReader, error) { return s, nil }
-
-func (s synthSource) readBlock(_ *bufPool, _ int64, n int) ([]byte, *[]byte, error) {
-	return s.block[:n], nil, nil
+func (s synthSource) open(uint32) (fileReader, error) { return s, nil }
+func (s synthSource) size(uint32) int64               { return 0 }
+func (s synthSource) ReadAt(p []byte, _ int64) (int, error) {
+	return copy(p, s.block[:len(p)]), nil
 }
-
 func (s synthSource) Close() error { return nil }
+func (s synthSource) Name() string { return "synthetic data" }
 
 func remoteError(body []byte) error {
 	var e proto.ErrorMsg
 	_ = proto.Decode(body, &e)
-	return fmt.Errorf("receiver: %s", e.Message)
+	err := fmt.Errorf("receiver: %s", e.Message)
+	if e.Fatal {
+		return permanent(err)
+	}
+	return err
 }

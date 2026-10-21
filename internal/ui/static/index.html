@@ -62,6 +62,20 @@ h2 { font-size: 13px; font-weight: 400; color: var(--sub); margin: 0 0 12px; dis
 h2::after { content: ""; flex: 1; height: 1px; background: var(--bg3); }
 h2 button { order: 2; font-size: 12.5px; }
 section { margin-bottom: 38px; }
+/* the room: the one big button on the page */
+.room { display: flex; gap: 10px; align-items: stretch; margin-bottom: 38px; }
+.roombig { flex: 1; display: block; background: var(--accent); color: var(--bg); border-radius: 14px; padding: 22px 24px;
+  text-decoration: none; transition: filter .15s, transform .15s; min-width: 0; }
+.roombig:hover { filter: brightness(1.08); }
+.roombig:active { transform: scale(.995); }
+.roombig:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.roombig .rt { font-size: 30px; font-weight: 500; letter-spacing: -.02em; line-height: 1.15; }
+.roombig .rt kbd { font: inherit; font-size: 13px; vertical-align: middle; margin-left: 10px; padding: 1px 7px; border-radius: 4px; background: rgba(0,0,0,.16); color: inherit; }
+.roombig .rs { font-size: 13.5px; margin-top: 6px; opacity: .8; overflow-wrap: anywhere; }
+.roombig.off { background: var(--bg2); color: var(--sub); pointer-events: none; }
+.room .qr { background: var(--bg2); color: var(--text); border-radius: 14px; padding: 0 22px; font-size: 14px; }
+.room .qr:hover { background: var(--bg3); }
+@media (max-width: 560px) { .room { flex-direction: column; } .room .qr { padding: 12px; } .roombig .rt { font-size: 24px; } }
 
 .peer { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 8px; }
 .peer:hover { background: var(--bg2); }
@@ -189,6 +203,14 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
 
   <main id="main" hidden>
     <div class="line" id="statusLine"></div>
+
+    <div class="room">
+      <a class="roombig off" id="roomBig" target="_blank" rel="noopener">
+        <div class="rt">create a room here<kbd>o</kbd></div>
+        <div class="rs" id="roomSub">waiting for a network address…</div>
+      </a>
+      <button class="qr" id="roomQR" title="qr code for phones (p)">show qr</button>
+    </div>
 
     <section>
       <h2>nearby <button id="rescan" title="scan again (r)">refresh</button></h2>
@@ -379,8 +401,22 @@ function render(s) {
   $("code").textContent = fmtCode(s.code);
   $("statusLine").innerHTML = `<b>${esc(s.name)}</b> · receiving into <button id="destLink" title="${esc(s.settings.dest)}">${esc(tidy(s.settings.dest))}</button> · port ${s.port}`;
   const addrs = (s.addrs || []).map((a) => `${esc(a.label.toLowerCase())} ${esc(a.ip)}`).join("  ·  ");
-  $("foot").innerHTML = `<kbd>r</kbd> refresh &nbsp; <kbd>p</kbd> phone &nbsp; <kbd>t</kbd> theme &nbsp; <kbd>s</kbd> settings &nbsp;·&nbsp; v${esc(s.version)}${addrs ? " &nbsp;·&nbsp; " + addrs : ""}`;
-  renderPeers(s); renderXfers(s); renderOffer(s);
+  $("foot").innerHTML = `<kbd>o</kbd> room &nbsp; <kbd>r</kbd> refresh &nbsp; <kbd>p</kbd> phone &nbsp; <kbd>t</kbd> theme &nbsp; <kbd>s</kbd> settings &nbsp;·&nbsp; v${esc(s.version)}${addrs ? " &nbsp;·&nbsp; " + addrs : ""}`;
+  renderPeers(s); renderXfers(s); renderOffer(s); renderRoom(s);
+}
+// The room runs whenever bit-flow does; this button opens it, and anyone on
+// the same Wi-Fi who opens the same address joins.
+function renderRoom(s) {
+  const url = s.phone_url || "";
+  $("roomBig").classList.toggle("off", !url);
+  if (url) $("roomBig").href = url; else $("roomBig").removeAttribute("href");
+  $("roomSub").textContent = url
+    ? `phones, tablets and laptops on this wi-fi open ${url.replace("http://", "")} to join, then send to each other. no install.`
+    : "connect to a wi-fi or wired network first.";
+}
+function openRoom() {
+  if (!state || !state.phone_url) { toast("no network address yet"); return; }
+  window.open(state.phone_url, "_blank", "noopener");
 }
 function renderPeers(s) {
   const el = $("peers");
@@ -590,6 +626,7 @@ function openPhone() {
   open("phoneDlg");
 }
 $("phoneBtn").onclick = openPhone;
+$("roomQR").onclick = openPhone;
 $("phoneClose").onclick = () => close("phoneDlg");
 
 document.addEventListener("click", (e) => {
@@ -618,7 +655,7 @@ document.addEventListener("keydown", (e) => {
   if (isOpen("phoneDlg")) { if (e.key === "Escape" || e.key === "Enter") close("phoneDlg"); return; }
   if (isOpen("offerDlg")) return;
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("main").hidden) return;
-  const actions = {r: scan, t: cycleTheme, s: openSettings, p: openPhone};
+  const actions = {r: scan, t: cycleTheme, s: openSettings, p: openPhone, o: openRoom};
   if (actions[e.key]) {
     e.preventDefault(); // or the key lands in a field the action just focused
     actions[e.key]();

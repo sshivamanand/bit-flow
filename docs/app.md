@@ -70,6 +70,7 @@ time) are always skipped, and interrupted transfers always resume.
 | Key | Action |
 |---|---|
 | `r` | scan for nearby devices again |
+| `o` | open the room in a new tab (same as the big **create a room here** button) |
 | `p` | phone panel: QR code and address of the room, for phones and friends without bit-flow |
 | `t` | next theme |
 | `s` | settings |
@@ -79,7 +80,8 @@ time) are always skipped, and interrupted transfers always resume.
 
 <img src="img/phone-qr.jpg" alt="Phone panel with a QR code" width="520">
 
-Press `p` (or click **phone**) to show a QR code for your computer's LAN address. Every device that opens it
+The big **create a room here** button (or `o`) opens the room in a new browser tab and shows the address
+other devices open to join. **show qr** next to it opens the QR code. Press `p` (or click **phone**) to show a QR code for your computer's LAN address. Every device that opens it
 joins **the room**, where phones, tablets and browsers can send to each other using the code shown on each
 device. They can also send you files with your pairing code, and a laptop can download bit-flow from it
 without internet. **open the room here** opens it in a browser tab on this computer too.

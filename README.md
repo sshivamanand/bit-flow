@@ -94,8 +94,9 @@ That's normal for small programs that don't come from a big company.
 
 <img src="docs/img/room.jpg" alt="The room on a phone, with an incoming transfer" width="260" align="right">
 
-Press `p` in the app (or look at the terminal) for a QR code and an address like `http://192.168.1.40:7700`.
-Every device that opens it joins **the room**:
+Click the big **create a room here** button in the app (or press `o`). It opens the room and shows an address
+like `http://192.168.1.40:7700`, and **show qr** gives phones a code to scan. Every device that opens it joins
+**the room**:
 
 - Everyone in the room shows up in a live list.
 - Each device has its own 6-digit code on its screen. To send, tap a device, pick files, and type the code

@@ -10,7 +10,7 @@ Phone, or a computer without bit-flow? Open http://192.168.1.40:7700
   ...
 ```
 
-That page is **the room**. Only the computer hosting it needs bit-flow. Every phone, tablet or laptop that
+In the app, the big **create a room here** button (or `o`) opens it for you. That page is **the room**. Only the computer hosting it needs bit-flow. Every phone, tablet or laptop that
 opens it joins, shows up in everyone else's list, and can send files to any other device in the room.
 
 ## Send between any two devices

@@ -1,0 +1,220 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050" font-family="-apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .ttl  { font-size: 28px; font-weight: 800; fill: #0f172a; }
+      .sub  { font-size: 14px; fill: #475569; }
+      .h    { font-size: 19px; font-weight: 800; fill: #0f172a; letter-spacing: .6px; }
+      .hs   { font-size: 12.5px; fill: #64748b; }
+      .t    { font-size: 15px; font-weight: 700; fill: #0f172a; }
+      .s    { font-size: 12.5px; fill: #334155; }
+      .st   { font-size: 12px; font-weight: 600; fill: #0f172a; text-anchor: middle; }
+      .lbl  { font-size: 12px; font-weight: 700; text-anchor: middle; }
+      .fr   { font-size: 11px; font-weight: 600; fill: #0f172a; text-anchor: middle; }
+      .c    { stroke: #94a3b8; stroke-width: 1.5; marker-end: url(#ag); }
+    </style>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker>
+    <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <marker id="agr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9333ea"/></marker>
+    <marker id="at" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/></marker>
+  </defs>
+
+  <rect width="1600" height="1050" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="40" y="50" class="ttl">bit-flow — architecture</text>
+  <text x="40" y="76" class="sub">peer-to-peer · multi-stream · multipath LAN transfer · one Go binary on every laptop · built for 100+ GB</text>
+
+  <!-- ================= PEER A ================= -->
+  <rect x="40" y="100" width="520" height="740" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="60" y="134" class="h">PEER A — SENDER</text>
+  <text x="60" y="156" class="hs">bitflow binary · roles are per-transfer</text>
+
+  <rect x="60" y="172" width="480" height="66" rx="10" fill="#eef2ff" stroke="#6366f1"/>
+  <text x="76" y="198" class="t">Local UI · 127.0.0.1</text>
+  <text x="76" y="221" class="s">pick files &amp; folders (native dialogs) · live MB/s + ETA</text>
+
+  <rect x="60" y="254" width="480" height="86" rx="10" fill="#ecfeff" stroke="#0891b2"/>
+  <text x="76" y="279" class="t">Control plane</text>
+  <text x="76" y="301" class="s">pairing: 6-digit code → PAKE → pinned TLS 1.3</text>
+  <text x="76" y="321" class="s">manifest: parallel tree walk (sizes, mtimes — no pre-hash)</text>
+
+  <rect x="60" y="356" width="480" height="110" rx="10" fill="#fefce8" stroke="#ca8a04"/>
+  <text x="76" y="381" class="t">Planner + Scheduler</text>
+  <text x="76" y="403" class="s">big files → 32 MiB chunks · small files → 32 MiB packs</text>
+  <text x="76" y="423" class="s">one shared work queue · workers pull (work-stealing)</text>
+  <text x="76" y="443" class="s">auto-tuner: adds streams, toggles zstd from live goodput</text>
+
+  <rect x="60" y="482" width="480" height="250" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="76" y="506" class="t">Worker pipeline × N</text>
+  <text x="250" y="506" class="hs">bounded channels · pooled 4 MiB buffers</text>
+
+  <!-- A lanes -->
+  <g id="laneA">
+    <!-- lane 1 y=540 -->
+    <rect x="74" y="524" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="112" y="544" class="st">pread</text>
+    <rect x="164" y="524" width="76" height="32" rx="6" fill="#fde68a"/><text x="202" y="544" class="st">XXH3</text>
+    <rect x="254" y="524" width="76" height="32" rx="6" fill="#fed7aa"/><text x="292" y="544" class="st">zstd?</text>
+    <rect x="344" y="524" width="76" height="32" rx="6" fill="#99f6e4"/><text x="382" y="544" class="st">AES-GCM</text>
+    <rect x="434" y="524" width="94" height="32" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="481" y="544" class="st">TCP 1</text>
+    <line x1="150" y1="540" x2="162" y2="540" class="c"/><line x1="240" y1="540" x2="252" y2="540" class="c"/><line x1="330" y1="540" x2="342" y2="540" class="c"/><line x1="420" y1="540" x2="432" y2="540" class="c"/>
+    <!-- lane 2 y=590 -->
+    <rect x="74" y="574" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="112" y="594" class="st">pread</text>
+    <rect x="164" y="574" width="76" height="32" rx="6" fill="#fde68a"/><text x="202" y="594" class="st">XXH3</text>
+    <rect x="254" y="574" width="76" height="32" rx="6" fill="#fed7aa"/><text x="292" y="594" class="st">zstd?</text>
+    <rect x="344" y="574" width="76" height="32" rx="6" fill="#99f6e4"/><text x="382" y="594" class="st">AES-GCM</text>
+    <rect x="434" y="574" width="94" height="32" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="481" y="594" class="st">TCP 2</text>
+    <line x1="150" y1="590" x2="162" y2="590" class="c"/><line x1="240" y1="590" x2="252" y2="590" class="c"/><line x1="330" y1="590" x2="342" y2="590" class="c"/><line x1="420" y1="590" x2="432" y2="590" class="c"/>
+    <!-- lane 3 y=640 -->
+    <rect x="74" y="624" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="112" y="644" class="st">pread</text>
+    <rect x="164" y="624" width="76" height="32" rx="6" fill="#fde68a"/><text x="202" y="644" class="st">XXH3</text>
+    <rect x="254" y="624" width="76" height="32" rx="6" fill="#fed7aa"/><text x="292" y="644" class="st">zstd?</text>
+    <rect x="344" y="624" width="76" height="32" rx="6" fill="#99f6e4"/><text x="382" y="644" class="st">AES-GCM</text>
+    <rect x="434" y="624" width="94" height="32" rx="6" fill="#dcfce7" stroke="#16a34a"/><text x="481" y="644" class="st">TCP 3</text>
+    <line x1="150" y1="640" x2="162" y2="640" class="c"/><line x1="240" y1="640" x2="252" y2="640" class="c"/><line x1="330" y1="640" x2="342" y2="640" class="c"/><line x1="420" y1="640" x2="432" y2="640" class="c"/>
+    <!-- dots -->
+    <text x="112" y="674" class="st" fill="#94a3b8">⋮</text><text x="202" y="674" class="st">⋮</text><text x="292" y="674" class="st">⋮</text><text x="382" y="674" class="st">⋮</text><text x="481" y="674" class="st">⋮</text>
+    <!-- lane N y=705 -->
+    <rect x="74" y="689" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="112" y="709" class="st">pread</text>
+    <rect x="164" y="689" width="76" height="32" rx="6" fill="#fde68a"/><text x="202" y="709" class="st">XXH3</text>
+    <rect x="254" y="689" width="76" height="32" rx="6" fill="#fed7aa"/><text x="292" y="709" class="st">zstd?</text>
+    <rect x="344" y="689" width="76" height="32" rx="6" fill="#99f6e4"/><text x="382" y="709" class="st">AES-GCM</text>
+    <rect x="434" y="689" width="94" height="32" rx="6" fill="#f3e8ff" stroke="#9333ea"/><text x="481" y="709" class="st">TCP N</text>
+    <line x1="150" y1="705" x2="162" y2="705" class="c"/><line x1="240" y1="705" x2="252" y2="705" class="c"/><line x1="330" y1="705" x2="342" y2="705" class="c"/><line x1="420" y1="705" x2="432" y2="705" class="c"/>
+  </g>
+
+  <rect x="60" y="748" width="480" height="76" rx="10" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="76" y="773" class="t">Disk (source)</text>
+  <text x="76" y="795" class="s">large sequential reads · read-ahead hints</text>
+  <text x="76" y="813" class="s">raw mode (trusted cable): zero-copy sendfile</text>
+
+  <!-- ================= PEER B ================= -->
+  <rect x="1040" y="100" width="520" height="740" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="1060" y="134" class="h">PEER B — RECEIVER</text>
+  <text x="1060" y="156" class="hs">same binary · either side can listen (firewall-proof)</text>
+
+  <rect x="1060" y="172" width="480" height="66" rx="10" fill="#eef2ff" stroke="#6366f1"/>
+  <text x="1076" y="198" class="t">Local UI · 127.0.0.1</text>
+  <text x="1076" y="221" class="s">accept / deselect items · pick destination folder · conflicts</text>
+
+  <rect x="1060" y="254" width="480" height="86" rx="10" fill="#ecfeff" stroke="#0891b2"/>
+  <text x="1076" y="279" class="t">Control plane</text>
+  <text x="1076" y="301" class="s">pairing: shows code · verifies peer fingerprint</text>
+  <text x="1076" y="321" class="s">checks existing files → skip identical, resume partial</text>
+
+  <rect x="1060" y="356" width="480" height="110" rx="10" fill="#fefce8" stroke="#ca8a04"/>
+  <text x="1076" y="381" class="t">Assembler</text>
+  <text x="1076" y="403" class="s">out-of-order blocks → pwrite at exact offset</text>
+  <text x="1076" y="423" class="s">small-file packs → parallel writer pool</text>
+  <text x="1076" y="443" class="s">resume journal: per-chunk bitmap, fsync'd every few s</text>
+
+  <rect x="1060" y="482" width="480" height="250" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="1076" y="506" class="t">Worker pipeline × N</text>
+  <text x="1250" y="506" class="hs">mirrors the sender</text>
+
+  <g id="laneB">
+    <!-- lane 1 -->
+    <rect x="1074" y="524" width="94" height="32" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="1121" y="544" class="st">TCP 1</text>
+    <rect x="1182" y="524" width="76" height="32" rx="6" fill="#99f6e4"/><text x="1220" y="544" class="st">decrypt</text>
+    <rect x="1272" y="524" width="76" height="32" rx="6" fill="#fed7aa"/><text x="1310" y="544" class="st">unzstd</text>
+    <rect x="1362" y="524" width="76" height="32" rx="6" fill="#fde68a"/><text x="1400" y="544" class="st">verify</text>
+    <rect x="1452" y="524" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="1490" y="544" class="st">pwrite</text>
+    <line x1="1168" y1="540" x2="1180" y2="540" class="c"/><line x1="1258" y1="540" x2="1270" y2="540" class="c"/><line x1="1348" y1="540" x2="1360" y2="540" class="c"/><line x1="1438" y1="540" x2="1450" y2="540" class="c"/>
+    <!-- lane 2 -->
+    <rect x="1074" y="574" width="94" height="32" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="1121" y="594" class="st">TCP 2</text>
+    <rect x="1182" y="574" width="76" height="32" rx="6" fill="#99f6e4"/><text x="1220" y="594" class="st">decrypt</text>
+    <rect x="1272" y="574" width="76" height="32" rx="6" fill="#fed7aa"/><text x="1310" y="594" class="st">unzstd</text>
+    <rect x="1362" y="574" width="76" height="32" rx="6" fill="#fde68a"/><text x="1400" y="594" class="st">verify</text>
+    <rect x="1452" y="574" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="1490" y="594" class="st">pwrite</text>
+    <line x1="1168" y1="590" x2="1180" y2="590" class="c"/><line x1="1258" y1="590" x2="1270" y2="590" class="c"/><line x1="1348" y1="590" x2="1360" y2="590" class="c"/><line x1="1438" y1="590" x2="1450" y2="590" class="c"/>
+    <!-- lane 3 -->
+    <rect x="1074" y="624" width="94" height="32" rx="6" fill="#dcfce7" stroke="#16a34a"/><text x="1121" y="644" class="st">TCP 3</text>
+    <rect x="1182" y="624" width="76" height="32" rx="6" fill="#99f6e4"/><text x="1220" y="644" class="st">decrypt</text>
+    <rect x="1272" y="624" width="76" height="32" rx="6" fill="#fed7aa"/><text x="1310" y="644" class="st">unzstd</text>
+    <rect x="1362" y="624" width="76" height="32" rx="6" fill="#fde68a"/><text x="1400" y="644" class="st">verify</text>
+    <rect x="1452" y="624" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="1490" y="644" class="st">pwrite</text>
+    <line x1="1168" y1="640" x2="1180" y2="640" class="c"/><line x1="1258" y1="640" x2="1270" y2="640" class="c"/><line x1="1348" y1="640" x2="1360" y2="640" class="c"/><line x1="1438" y1="640" x2="1450" y2="640" class="c"/>
+    <text x="1121" y="674" class="st">⋮</text><text x="1220" y="674" class="st">⋮</text><text x="1310" y="674" class="st">⋮</text><text x="1400" y="674" class="st">⋮</text><text x="1490" y="674" class="st">⋮</text>
+    <!-- lane N -->
+    <rect x="1074" y="689" width="94" height="32" rx="6" fill="#f3e8ff" stroke="#9333ea"/><text x="1121" y="709" class="st">TCP N</text>
+    <rect x="1182" y="689" width="76" height="32" rx="6" fill="#99f6e4"/><text x="1220" y="709" class="st">decrypt</text>
+    <rect x="1272" y="689" width="76" height="32" rx="6" fill="#fed7aa"/><text x="1310" y="709" class="st">unzstd</text>
+    <rect x="1362" y="689" width="76" height="32" rx="6" fill="#fde68a"/><text x="1400" y="709" class="st">verify</text>
+    <rect x="1452" y="689" width="76" height="32" rx="6" fill="#e2e8f0"/><text x="1490" y="709" class="st">pwrite</text>
+    <line x1="1168" y1="705" x2="1180" y2="705" class="c"/><line x1="1258" y1="705" x2="1270" y2="705" class="c"/><line x1="1348" y1="705" x2="1360" y2="705" class="c"/><line x1="1438" y1="705" x2="1450" y2="705" class="c"/>
+  </g>
+
+  <rect x="1060" y="748" width="480" height="76" rx="10" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="1076" y="773" class="t">Disk (destination)</text>
+  <text x="1076" y="795" class="s">files preallocated up front · free-space check before accept</text>
+  <text x="1076" y="813" class="s">written as .bitflow-partial, renamed once verified</text>
+
+  <!-- ================= MIDDLE ================= -->
+  <!-- Discovery -->
+  <rect x="600" y="108" width="400" height="104" rx="12" fill="#f0fdfa" stroke="#0d9488" stroke-dasharray="5 4"/>
+  <text x="800" y="134" class="t" text-anchor="middle">Discovery — works on any Wi-Fi</text>
+  <text x="800" y="158" class="s" text-anchor="middle">UDP multicast → mDNS → /24 subnet scan</text>
+  <text x="800" y="178" class="s" text-anchor="middle">→ QR code / typed address (always works)</text>
+  <text x="800" y="198" class="s" text-anchor="middle">peers advertise every interface address</text>
+
+  <!-- Control channel -->
+  <line x1="542" y1="297" x2="1058" y2="297" stroke="#0891b2" stroke-width="2.5" marker-start="url(#at)" marker-end="url(#at)"/>
+  <text x="800" y="286" class="lbl" fill="#0e7490">control channel · 1 TLS 1.3 connection</text>
+  <text x="800" y="316" class="s" text-anchor="middle">offer · accept(dest, selection) · progress · resume bitmap</text>
+
+  <!-- Data frame -->
+  <rect x="588" y="352" width="424" height="116" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="800" y="376" class="t" text-anchor="middle">Data frame (per ≤ 4 MiB block)</text>
+  <rect x="597" y="390" width="46" height="30" fill="#e0e7ff"/><text x="620" y="409" class="fr">unit</text>
+  <rect x="643" y="390" width="46" height="30" fill="#c7d2fe"/><text x="666" y="409" class="fr">file</text>
+  <rect x="689" y="390" width="58" height="30" fill="#e0e7ff"/><text x="718" y="409" class="fr">offset</text>
+  <rect x="747" y="390" width="40" height="30" fill="#c7d2fe"/><text x="767" y="409" class="fr">len</text>
+  <rect x="787" y="390" width="48" height="30" fill="#e0e7ff"/><text x="811" y="409" class="fr">rawLen</text>
+  <rect x="835" y="390" width="40" height="30" fill="#c7d2fe"/><text x="855" y="409" class="fr">flags</text>
+  <rect x="875" y="390" width="58" height="30" fill="#fde68a"/><text x="904" y="409" class="fr">XXH3</text>
+  <rect x="933" y="390" width="70" height="30" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="3 3"/><text x="968" y="409" class="fr">payload…</text>
+  <text x="800" y="442" class="s" text-anchor="middle">flags: COMPRESSED · PACK · LAST_BLOCK_OF_CHUNK</text>
+  <text x="800" y="460" class="hs" text-anchor="middle">hash verified before write · chunk = unit of resume</text>
+
+  <!-- Data streams -->
+  <line x1="530" y1="540" x2="1072" y2="540" stroke="#2563eb" stroke-width="3" marker-end="url(#ab)"/>
+  <text x="800" y="532" class="lbl" fill="#1d4ed8">stream 1 · Wi-Fi</text>
+  <line x1="530" y1="590" x2="1072" y2="590" stroke="#2563eb" stroke-width="3" marker-end="url(#ab)"/>
+  <text x="800" y="582" class="lbl" fill="#1d4ed8">stream 2 · Wi-Fi</text>
+  <line x1="530" y1="640" x2="1072" y2="640" stroke="#16a34a" stroke-width="3" marker-end="url(#agr)"/>
+  <text x="800" y="632" class="lbl" fill="#15803d">stream 3 · Ethernet</text>
+  <text x="800" y="672" class="lbl" fill="#94a3b8">⋮  auto-tuned 4 → 32 streams  ⋮</text>
+  <line x1="530" y1="705" x2="1072" y2="705" stroke="#9333ea" stroke-width="3" marker-end="url(#ap)"/>
+  <text x="800" y="697" class="lbl" fill="#7e22ce">stream N · Thunderbolt / USB4</text>
+
+  <!-- Multipath legend -->
+  <rect x="600" y="740" width="400" height="100" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="800" y="764" class="t" text-anchor="middle">Multipath striping</text>
+  <text x="800" y="786" class="s" text-anchor="middle">each stream is pinned to one path; all pull from</text>
+  <text x="800" y="804" class="s" text-anchor="middle">one queue, so faster paths carry more automatically</text>
+  <rect x="630" y="816" width="12" height="12" rx="2" fill="#2563eb"/><text x="648" y="827" class="hs">Wi-Fi</text>
+  <rect x="712" y="816" width="12" height="12" rx="2" fill="#16a34a"/><text x="730" y="827" class="hs">Ethernet</text>
+  <rect x="812" y="816" width="12" height="12" rx="2" fill="#9333ea"/><text x="830" y="827" class="hs">Thunderbolt / USB4</text>
+
+  <!-- ================= BOTTOM ================= -->
+  <rect x="40" y="872" width="490" height="146" rx="12" fill="#f0f9ff" stroke="#0284c7"/>
+  <text x="60" y="902" class="t">Bootstrap over LAN</text>
+  <text x="60" y="928" class="s">friend opens http://&lt;your-ip&gt;:7700/get</text>
+  <text x="60" y="950" class="s">your peer serves bitflow for macOS · Windows · Linux</text>
+  <text x="60" y="972" class="s">one small file · no internet · no installer</text>
+  <text x="60" y="994" class="s">macOS: curl … | sh avoids the Gatekeeper prompt</text>
+
+  <rect x="555" y="872" width="490" height="146" rx="12" fill="#fff7ed" stroke="#ea580c"/>
+  <text x="575" y="902" class="t">Topology advisor</text>
+  <text x="575" y="928" class="s">same router = 2 air hops (≈ half speed)</text>
+  <text x="575" y="950" class="s">  → "plug one laptop into the router: ~2× faster"</text>
+  <text x="575" y="972" class="s">client isolation detected → hotspot or direct cable</text>
+  <text x="575" y="994" class="s">probes every interface · prefers wired · stripes all</text>
+
+  <rect x="1070" y="872" width="490" height="146" rx="12" fill="#fdf4ff" stroke="#c026d3"/>
+  <text x="1090" y="902" class="t">Browser fallback (phones / no binary)</text>
+  <text x="1090" y="928" class="s">same web UI exposed to the LAN, code-protected</text>
+  <text x="1090" y="950" class="s">parallel chunked uploads · Range-resumable downloads</text>
+  <text x="1090" y="972" class="s">File System Access API for big writes (Chromium)</text>
+  <text x="1090" y="994" class="s">slower lane — native peer-to-peer is the fast lane</text>
+</svg>

@@ -1,0 +1,4 @@
+bin/
+dist/
+*.bitflow-partial
+.DS_Store

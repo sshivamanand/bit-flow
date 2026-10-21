@@ -74,6 +74,9 @@ The browser pages on port 7700 are reachable by anyone on your network:
   someone's browser can't join the room as them.
 - **The host computer relays the bytes** (nothing is written to its disk) and could read them. You're
   trusting whoever runs the room.
+- The bit-flow app is itself a member of the room. Sending to it needs its **pairing code**, checked by the
+  same rate limit and rotation as computer pairing; it asks before accepting, and files go through
+  `store.SafeJoin` into the receive folder as `.bitflow-partial`, renamed when complete, never overwriting.
 - **Browser traffic is plain HTTP.** Browsers can't use bit-flow's pinned keys, so on a shared network
   someone could watch phone uploads and downloads, including the code typed into the page. Prefer the
   app between computers for anything sensitive. Change the code by restarting `recv`, or run it with

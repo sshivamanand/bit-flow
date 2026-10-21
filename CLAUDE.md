@@ -61,14 +61,14 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
 | `internal/planner` | Sender side: walk paths → `Manifest`; split into work `Unit`s (32 MiB chunks of big files, packs of small files), honoring resume info. |
 | `internal/store` | Receiver side: path safety, conflict policy, preallocation, out-of-order `WriteAt`, packs, `.bitflow-partial` + rename, resume journal, free-space checks. |
 | `internal/transfer` | The engine: `Sender` / `Receiver`, control session, N data streams, pipelines, retries, compression (`compress.go`), stream gate + tuner (`tuner.go`), multipath (`paths.go`). |
-| `internal/web` | Browser side of the transfer port: `Split` (peer vs HTTP by first bytes), `/get` + installer, phone upload/download pages, the room (`room.go`: browser ↔ browser via the host), QR (terminal + SVG). |
+| `internal/web` | Browser side of the transfer port: `Split` (peer vs HTTP by first bytes), `/get` + installer, phone upload/download pages, the room (`room.go`: browser ↔ browser via the host; `room_local.go`: the app as an in-process member), QR (terminal + SVG). |
 | `internal/steam` | Steam libraries and installed games (VDF parser); `BITFLOW_STEAM_ROOT` points it at a fake install in tests. |
 | `internal/history` | Append-only `history.jsonl` shared by CLI and app (`bitflow history`), and `Batches`, which groups browser uploads per folder / run of files. |
 | `internal/advisor` | Plain-English advice from the route (double air hop, multipath, cable, client isolation). |
 | `internal/netinfo` | Interface listing with friendly labels (Wi-Fi, Ethernet, Thunderbolt Bridge). |
 | `internal/discovery` | Find peers: UDP multicast + broadcast query, unicast answers, TCP /24 probe fallback, name lookup. |
 | `internal/config` | Device ID, name, default folder, conflict policy (`config.json` in the user config dir; `BITFLOW_CONFIG_DIR` overrides it). |
-| `internal/ui` | Desktop app: agent (`App`), loopback HTTP API + SSE (`Server`), sessions, history, native pickers, embedded `static/index.html`. |
+| `internal/ui` | Desktop app: agent (`App`), loopback HTTP API + SSE (`Server`), sessions, history, native pickers, room devices in nearby (`room.go`), embedded `static/index.html`. |
 | `internal/awake` | Keep the machine awake during transfers (per-OS files). |
 | `internal/units` | Size parsing/formatting. |
 

@@ -62,6 +62,8 @@ type member struct {
 	online              bool
 	gone                *time.Timer
 	ws                  *websocket.Conn
+	host                bool              // the computer running bit-flow (joined in-process)
+	check               func(string) bool // non-nil: codes are checked here instead (the host's pairing code)
 }
 
 type rfile struct {
@@ -115,6 +117,7 @@ type rosterItem struct {
 	Kind   string `json:"kind"`
 	Paired bool   `json:"paired"` // you can send to them without a code
 	Online bool   `json:"online"`
+	Host   bool   `json:"host,omitempty"` // the computer running bit-flow
 }
 
 func newRoom() *room {
@@ -302,7 +305,7 @@ func (rm *room) broadcastRoster() {
 				continue
 			}
 			list = append(list, rosterItem{ID: other.id, Name: other.name, Kind: other.kind,
-				Paired: other.paired[viewer.id], Online: other.online})
+				Paired: other.paired[viewer.id], Online: other.online, Host: other.host})
 		}
 		if list == nil {
 			list = []rosterItem{}
@@ -340,58 +343,70 @@ func (rm *room) handle(m *member, msg roomMsg) {
 	}
 }
 
-// offer checks the pairing code (unless already paired) and asks the receiver.
+// offer handles an offer from a browser tab.
 func (rm *room) offer(from *member, msg roomMsg) {
-	fail := func(e string) { rm.sendTo(from.id, roomMsg{Type: "offer-error", To: msg.To, Error: e}) }
+	if _, err := rm.makeOffer(from, msg.To, msg.Code, msg.Files); err != nil {
+		rm.sendTo(from.id, roomMsg{Type: "offer-error", To: msg.To, Error: err.Error()})
+	}
+}
+
+// makeOffer checks the pairing code (unless already paired) and asks the receiver.
+func (rm *room) makeOffer(from *member, toID, rawCode string, in []rfile) (*rxfer, error) {
 	var total int64
-	files := make([]rfile, 0, len(msg.Files))
-	for _, f := range msg.Files {
+	files := make([]rfile, 0, len(in))
+	for _, f := range in {
 		name := cleanPath(f.Name)
 		if name == "" || f.Size < 0 {
-			fail("bad file name")
-			return
+			return nil, errors.New("bad file name")
 		}
 		files = append(files, rfile{Name: name, Size: f.Size})
 		total += f.Size
 	}
 	if len(files) == 0 || len(files) > 10000 {
-		fail("pick between 1 and 10,000 files")
-		return
+		return nil, errors.New("pick between 1 and 10,000 files")
 	}
 
 	rm.mu.Lock()
-	to := rm.members[msg.To]
+	to := rm.members[toID]
 	switch {
 	case to == nil || !to.online:
 		rm.mu.Unlock()
-		fail("that device isn't here any more")
-		return
+		return nil, errors.New("that device isn't here any more")
 	case to.id == from.id:
 		rm.mu.Unlock()
-		fail("that's you")
-		return
+		return nil, errors.New("that's you")
 	}
 	if !to.paired[from.id] {
-		code := secure.NormalizeCode(msg.Code)
-		if subtle.ConstantTimeCompare([]byte(code), []byte(to.code)) != 1 {
+		code := secure.NormalizeCode(rawCode)
+		if to.check != nil {
+			// The host's own pairing code: its checker rate-limits and rotates
+			// exactly like computer pairing, and may sleep, so don't hold the lock.
+			check, name := to.check, to.name
+			rm.mu.Unlock()
+			if !check(code) {
+				return nil, errors.New("wrong code — use the pairing code shown on " + name)
+			}
+			rm.mu.Lock()
+			if to = rm.members[toID]; to == nil || !to.online {
+				rm.mu.Unlock()
+				return nil, errors.New("that device isn't here any more")
+			}
+		} else if subtle.ConstantTimeCompare([]byte(code), []byte(to.code)) != 1 {
 			to.fails++
-			rotated := ""
 			if to.fails >= roomPairFailures {
 				to.code, to.fails = secure.NewCode(), 0
-				rotated = to.code
 				for id := range to.paired {
 					delete(to.paired, id) // a new code means everyone pairs again
 				}
+				rm.send(to, roomMsg{Type: "code", Code: to.code})
 			}
-			if rotated != "" {
-				rm.send(to, roomMsg{Type: "code", Code: rotated})
-			}
+			name := to.name
 			rm.mu.Unlock()
 			time.Sleep(roomPenalty)
-			fail("wrong code — use the code shown on " + to.name)
-			return
+			return nil, errors.New("wrong code — use the code shown on " + name)
+		} else {
+			to.fails = 0
 		}
-		to.fails = 0
 		to.paired[from.id] = true
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -411,6 +426,7 @@ func (rm *room) offer(from *member, msg roomMsg) {
 			rm.finish(x, "failed", "no answer")
 		}
 	})
+	return x, nil
 }
 
 // finish ends a transfer once and tells both sides.
@@ -462,26 +478,10 @@ func (rm *room) download(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rm.mu.Lock()
-	if x.state == "offered" {
-		x.state = "accepted"
-		if from := rm.members[x.from]; from != nil {
-			from.paired[m.id] = true // accepting someone means you can send back without a code
-		}
-	}
-	ok := x.state == "accepted" && !x.started
-	x.started = x.started || ok
-	rm.mu.Unlock()
-	if !ok {
+	if !rm.accept(m, x) {
 		http.Error(w, "this transfer is no longer waiting", http.StatusConflict)
 		return
 	}
-	x.acceptOnce.Do(func() {
-		close(x.accepted)
-		rm.sendTo(x.from, roomMsg{Type: "accepted", Xfer: x.id})
-		go rm.progress(x)
-		rm.broadcastRoster()
-	})
 
 	w.Header().Set("Cache-Control", "no-store")
 	var zw *zip.Writer
@@ -503,7 +503,15 @@ func (rm *room) download(w http.ResponseWriter, r *http.Request) {
 	// writing to a stalled download: a past write deadline makes Write return.
 	rc := http.NewResponseController(w)
 	stop := context.AfterFunc(x.ctx, func() { _ = rc.SetWriteDeadline(time.Now()) })
-	err := rm.relay(r.Context(), x, w, zw)
+	err := rm.relay(r.Context(), x, func(f rfile) (io.Writer, func(error) error, error) {
+		if zw == nil {
+			return w, nil, nil
+		}
+		hdr := &zip.FileHeader{Name: f.Name, Method: zip.Store, Modified: time.Now()}
+		hdr.UncompressedSize64 = uint64(f.Size)
+		zf, err := zw.CreateHeader(hdr)
+		return zf, nil, err
+	})
 	if err == nil && zw != nil {
 		err = zw.Close()
 	}
@@ -515,8 +523,33 @@ func (rm *room) download(w http.ResponseWriter, r *http.Request) {
 	rm.finish(x, "done", "")
 }
 
-// relay copies each file the sender uploads, in order, to the download.
-func (rm *room) relay(ctx context.Context, x *rxfer, w io.Writer, zw *zip.Writer) error {
+// accept marks x accepted by m and starts it (once). It reports false if x
+// isn't waiting for m any more, or its data is already flowing.
+func (rm *room) accept(m *member, x *rxfer) bool {
+	rm.mu.Lock()
+	if x.state == "offered" {
+		x.state = "accepted"
+		if from := rm.members[x.from]; from != nil {
+			from.paired[m.id] = true // accepting someone means you can send back without a code
+		}
+	}
+	ok := x.to == m.id && x.state == "accepted" && !x.started
+	x.started = x.started || ok
+	rm.mu.Unlock()
+	if ok {
+		x.acceptOnce.Do(func() {
+			close(x.accepted)
+			rm.sendTo(x.from, roomMsg{Type: "accepted", Xfer: x.id})
+			go rm.progress(x)
+			rm.broadcastRoster()
+		})
+	}
+	return ok
+}
+
+// relay copies each file the sender uploads, in order, to where open says.
+// done, if non-nil, is told how that file went and may fail it.
+func (rm *room) relay(ctx context.Context, x *rxfer, open func(rfile) (dst io.Writer, done func(error) error, err error)) error {
 	for i, f := range x.files {
 		var p pipe
 		select {
@@ -532,21 +565,18 @@ func (rm *room) relay(ctx context.Context, x *rxfer, w io.Writer, zw *zip.Writer
 			p.done <- errors.New("files out of order")
 			return errors.New("files arrived out of order")
 		}
-		dst := w
-		if zw != nil {
-			hdr := &zip.FileHeader{Name: f.Name, Method: zip.Store, Modified: time.Now()}
-			hdr.UncompressedSize64 = uint64(f.Size)
-			zf, err := zw.CreateHeader(hdr)
-			if err != nil {
-				p.done <- err
-				return err
-			}
-			dst = zf
+		dst, done, err := open(f)
+		if err != nil {
+			p.done <- err
+			return err
 		}
 		// Never pass on more than was offered: extra bytes would corrupt the zip.
 		n, err := io.Copy(dst, countingReader{io.LimitReader(p.body, f.Size), &x.moved})
 		if err == nil && n != f.Size {
 			err = fmt.Errorf("%s: got %d of %d bytes", f.Name, n, f.Size)
+		}
+		if done != nil {
+			err = done(err)
 		}
 		p.done <- err
 		if err != nil {

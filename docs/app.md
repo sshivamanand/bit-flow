@@ -22,9 +22,14 @@ other laptops see under **nearby** and in their accept prompts. Change it any ti
 - **Your pairing code** (top right). Whoever sends you files needs it. After 5 wrong attempts it changes
   automatically.
 - **Status line**: your device name, the folder incoming files go to (click it to change), and the port.
-- **nearby**: other bit-flow computers on the network, found automatically. For each one:
-  - **files** / **folder**: opens your system's file picker, then asks for that computer's pairing code
-  - **game**: picks one of your installed Steam games (see [Steam games](games.md))
+- **nearby**: everything you can send to, in one list.
+  - **bit-flow computers** (solid dot) are found automatically and get the direct, encrypted, fast path.
+    **files** / **folder** opens your system's file picker, then asks for that computer's pairing code.
+    **game** picks one of your installed Steam games (see [Steam games](games.md)).
+  - **phones and browsers** (hollow dot, "browser") are devices that opened your invite address. Sending
+    to one goes through the room: you type the code on *their* screen (not needed once you're paired), and
+    several files arrive there as one zip. It's slower and not encrypted.
+  - The **+ invite** row at the end shows the address phones open; **show qr** gives them a code to scan.
 - **or [address]**: type an IP address (`192.168.1.40`, or `192.168.1.40:7711` for another port) when
   discovery can't find the other computer.
 - **transfers**: everything in flight and finished, newest first. Running transfers show progress,
@@ -70,22 +75,20 @@ time) are always skipped, and interrupted transfers always resume.
 | Key | Action |
 |---|---|
 | `r` | scan for nearby devices again |
-| `o` | open the room in a new tab (same as the big **create a room here** button) |
-| `p` | phone panel: QR code and address of the room, for phones and friends without bit-flow |
+| `p` | invite panel: QR code and address for phones, tablets and friends without bit-flow |
 | `t` | next theme |
 | `s` | settings |
-| `enter` / `esc` | confirm / close the send, settings and phone panels |
+| `enter` / `esc` | confirm / close the send, settings and invite panels |
 
 ## Phones and friends without bit-flow
 
 <img src="img/phone-qr.jpg" alt="Phone panel with a QR code" width="520">
 
-The big **create a room here** button (or `o`) opens the room in a new browser tab and shows the address
-other devices open to join. **show qr** next to it opens the QR code. Press `p` (or click **phone**) to show a QR code for your computer's LAN address. Every device that opens it
-joins **the room**, where phones, tablets and browsers can send to each other using the code shown on each
-device. They can also send you files with your pairing code, and a laptop can download bit-flow from it
-without internet. **open the room here** opens it in a browser tab on this computer too.
-See [Phones & browsers](phones.md).
+Press `p` (or click **invite**, or **show qr** under nearby) for a QR code of your computer's LAN address.
+Every device that opens it joins **the room** and shows up under your **nearby**. Phones can send to you with
+your pairing code: you get the usual accept prompt, and the files land in your receive folder (existing
+files are kept; a clash is saved as "name (1)"). Devices in the room can also send to each other, and a
+laptop can download bit-flow from the same page without internet. See [Phones & browsers](phones.md).
 
 ## Sessions
 

@@ -29,8 +29,8 @@ button { font: inherit; color: var(--sub); background: none; border: 0; padding:
 button:hover { color: var(--text); }
 button.key { background: var(--bg2); color: var(--text); padding: 6px 13px; }
 button.key:hover { background: var(--text); color: var(--bg); }
-a.roomlink { color: var(--text); background: var(--bg2); padding: 6px 13px; border-radius: 6px; text-decoration: none; }
-a.roomlink:hover { background: var(--text); color: var(--bg); }
+a.roomlink { color: var(--sub); padding: 6px 10px; border-radius: 6px; text-decoration: none; margin-right: auto; }
+a.roomlink:hover { color: var(--text); }
 button.go { background: var(--accent); color: var(--bg); padding: 6px 15px; font-weight: 500; }
 button.go:hover { filter: brightness(1.1); background: var(--accent); color: var(--bg); }
 button:disabled { opacity: .45; cursor: default; }
@@ -54,37 +54,39 @@ nav .icons { display: flex; gap: 4px; align-items: center; }
 .navlink { color: var(--sub); text-decoration: none; padding: 4px 6px; border-radius: 6px; }
 .navlink:hover { color: var(--text); }
 
-.line { color: var(--sub); font-size: 13px; margin-bottom: 30px; overflow-wrap: anywhere; }
+.line { color: var(--sub); font-size: 13px; margin-bottom: 34px; overflow-wrap: anywhere; }
 .line b { color: var(--text); font-weight: 400; }
 .line button { display: inline; text-align: left; color: var(--text); text-decoration: underline; text-decoration-color: var(--sub); text-underline-offset: 3px; padding: 0; overflow-wrap: anywhere; }
 
 h2 { font-size: 13px; font-weight: 400; color: var(--sub); margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
 h2::after { content: ""; flex: 1; height: 1px; background: var(--bg3); }
 h2 button { order: 2; font-size: 12.5px; }
+h2 .hacts { order: 2; display: flex; gap: 2px; }
 section { margin-bottom: 38px; }
-/* the room: the one big button on the page */
-.room { display: flex; gap: 10px; align-items: stretch; margin-bottom: 38px; }
-.roombig { flex: 1; display: block; background: var(--accent); color: var(--bg); border-radius: 14px; padding: 22px 24px;
-  text-decoration: none; transition: filter .15s, transform .15s; min-width: 0; }
-.roombig:hover { filter: brightness(1.08); }
-.roombig:active { transform: scale(.995); }
-.roombig:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
-.roombig .rt { font-size: 30px; font-weight: 500; letter-spacing: -.02em; line-height: 1.15; }
-.roombig .rt kbd { font: inherit; font-size: 13px; vertical-align: middle; margin-left: 10px; padding: 1px 7px; border-radius: 4px; background: rgba(0,0,0,.16); color: inherit; }
-.roombig .rs { font-size: 13.5px; margin-top: 6px; opacity: .8; overflow-wrap: anywhere; }
-.roombig.off { background: var(--bg2); color: var(--sub); pointer-events: none; }
-.room .qr { background: var(--bg2); color: var(--text); border-radius: 14px; padding: 0 22px; font-size: 14px; }
-.room .qr:hover { background: var(--bg3); }
-@media (max-width: 560px) { .room { flex-direction: column; } .room .qr { padding: 12px; } .roombig .rt { font-size: 24px; } }
-
-.peer { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 8px; }
+.peer { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 10px; transition: background .15s; }
 .peer:hover { background: var(--bg2); }
-.peer .n { font-weight: 500; }
-.peer .a { color: var(--sub); font-size: 13px; flex: 1; }
+.peer .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.peer.browser .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--sub); }
+.peer .who { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.peer .n { font-weight: 500; overflow-wrap: anywhere; }
+.peer .a { color: var(--sub); font-size: 12.5px; }
+.peer .a .ok { color: var(--accent); }
 .peer .acts { display: flex; gap: 6px; }
-.manual { display: flex; gap: 8px; align-items: center; margin-top: 10px; padding: 0 12px; }
-.manual input { flex: 1; max-width: 260px; }
+.peer .acts button.key { padding: 5px 12px; font-size: 13.5px; }
+/* invite: a quiet row at the end of the list, not a billboard */
+.invite { display: flex; align-items: center; gap: 12px; margin-top: 6px; padding: 10px 12px; border-radius: 10px;
+  border: 1px dashed var(--bg3); color: var(--sub); font-size: 13px; flex-wrap: wrap; }
+.invite .plus { color: var(--accent); font-size: 15px; line-height: 1; }
+.invite .url { color: var(--text); }
+.invite .grow { flex: 1; min-width: 0; }
+.invite button { font-size: 13px; }
+.invite button.key { padding: 4px 11px; }
+.manual { display: flex; gap: 8px; align-items: center; margin-top: 12px; padding: 0 12px; }
+.manual input { flex: 1; max-width: 300px; font-size: 13.5px; padding: 6px 12px; }
+.manual button.key { padding: 5px 12px; font-size: 13.5px; }
+.manual .sub { font-size: 13px; }
 .empty { color: var(--sub); padding: 10px 12px; font-size: 13.5px; }
+.empty b { color: var(--text); font-weight: 400; }
 .empty code { color: var(--text); }
 
 .xfer { padding: 14px 12px 12px; border-radius: 10px; margin-bottom: 6px; }
@@ -174,6 +176,13 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
   .code { text-align: left; }
   .stats { gap: 20px; }
   .peer { flex-wrap: wrap; }
+  .peer .acts { width: 100%; padding-left: 21px; }
+  .manual { flex-wrap: wrap; }
+  .manual .sub { width: 100%; }
+  .manual input { max-width: none; }
+  .invite { align-items: flex-start; }
+  .invite .grow { flex-basis: calc(100% - 30px); }
+  .invite button.key { margin-left: 22px; }
 }
 </style>
 </head>
@@ -190,7 +199,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
     </div>
     <div class="icons" id="icons" hidden>
       <a href="/docs" class="navlink" title="quick reference">docs</a>
-      <button id="phoneBtn" title="phones and computers without bit-flow (p)">phone</button>
+      <button id="phoneBtn" title="invite a phone, tablet or browser (p)">invite</button>
       <button id="themeBtn" title="change theme (t)">theme</button>
       <button id="settingsBtn" title="settings (s)">settings</button>
     </div>
@@ -204,19 +213,16 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
   <main id="main" hidden>
     <div class="line" id="statusLine"></div>
 
-    <div class="room">
-      <a class="roombig off" id="roomBig" target="_blank" rel="noopener">
-        <div class="rt">create a room here<kbd>o</kbd></div>
-        <div class="rs" id="roomSub">waiting for a network address…</div>
-      </a>
-      <button class="qr" id="roomQR" title="qr code for phones (p)">show qr</button>
-    </div>
-
     <section>
       <h2>nearby <button id="rescan" title="scan again (r)">refresh</button></h2>
       <div id="peers"><div class="empty">looking for devices…</div></div>
+      <div class="invite" id="invite" hidden>
+        <span class="plus">+</span>
+        <span class="grow">phones, tablets and laptops without bit-flow: open <span class="url" id="inviteURL"></span> on the same wi-fi</span>
+        <button class="key" id="inviteQR" title="show a qr code (p)">show qr</button>
+      </div>
       <div class="manual">
-        <span class="sub">or</span>
+        <span class="sub">or send to an address</span>
         <input id="addr" placeholder="192.168.1.40" autocomplete="off" spellcheck="false" aria-label="address">
         <button class="key" data-manual="files">files</button>
         <button class="key" data-manual="folder">folder</button>
@@ -259,8 +265,11 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
   <div class="panel" role="dialog" aria-modal="true">
     <div class="title">send to <span id="sdPeer" class="acc"></span></div>
     <ul class="paths" id="sdPaths"></ul>
-    <label for="sdCode">pairing code shown on <span id="sdPeer2"></span></label>
-    <input id="sdCode" class="codein" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="······">
+    <div id="sdCodeBox">
+      <label for="sdCode">code shown on <span id="sdPeer2"></span></label>
+      <input id="sdCode" class="codein" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="······">
+    </div>
+    <div class="note" id="sdVia"></div>
     <div class="err note" id="sdErr"></div>
     <div class="actions"><button id="sdCancel">cancel <span class="sub">esc</span></button><button class="go" id="sdGo">send ↵</button></div>
   </div>
@@ -304,13 +313,13 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
 <!-- phone / browser access -->
 <div class="scrim" id="phoneDlg">
   <div class="panel" role="dialog" aria-modal="true" style="text-align:center">
-    <div class="title">the room: phones, tablets, any browser</div>
+    <div class="title">invite a phone, tablet or laptop</div>
     <div id="phoneQR" style="width:220px;height:220px;margin:18px auto;border-radius:10px;overflow:hidden;background:#fff"></div>
     <div class="big" id="phoneURL" style="font-size:18px"></div>
-    <div class="note">scan or type this on the same wi-fi. every device that opens it joins the room and can send
-      to any other, using the code shown on that device. they can also send here with your pairing code, and
-      computers can download bit-flow from it, no internet needed.</div>
-    <div class="actions"><a class="roomlink" id="phoneRoom" target="_blank" rel="noopener">open the room here</a><button class="go" id="phoneClose">done</button></div>
+    <div class="note">scan it or type it on the same wi-fi, no install needed. they show up under nearby here,
+      and can send to you with your pairing code or to each other with the code on each screen.
+      laptops can also download bit-flow from it.</div>
+    <div class="actions"><a class="roomlink" id="phoneRoom" target="_blank" rel="noopener">open in this browser</a><button class="go" id="phoneClose">done</button></div>
   </div>
 </div>
 
@@ -342,7 +351,7 @@ function toast(msg) {
 // ---- formatting (decimal units, like drives and links are sold) ----
 function bytes(n, parts) {
   const u = n >= 1e12 ? [1e12, "TB"] : n >= 1e9 ? [1e9, "GB"] : n >= 1e6 ? [1e6, "MB"] : n >= 1e3 ? [1e3, "KB"] : [1, "B"];
-  const v = u[0] === 1 ? String(n) : (n / u[0]).toFixed(n / u[0] >= 100 ? 0 : n / u[0] >= 10 ? 1 : 2);
+  const v = u[0] === 1 ? String(Math.round(n)) : (n / u[0]).toFixed(n / u[0] >= 100 ? 0 : n / u[0] >= 10 ? 1 : 2);
   return parts ? [v, u[1]] : v + " " + u[1];
 }
 function dur(s) {
@@ -401,34 +410,33 @@ function render(s) {
   $("code").textContent = fmtCode(s.code);
   $("statusLine").innerHTML = `<b>${esc(s.name)}</b> · receiving into <button id="destLink" title="${esc(s.settings.dest)}">${esc(tidy(s.settings.dest))}</button> · port ${s.port}`;
   const addrs = (s.addrs || []).map((a) => `${esc(a.label.toLowerCase())} ${esc(a.ip)}`).join("  ·  ");
-  $("foot").innerHTML = `<kbd>o</kbd> room &nbsp; <kbd>r</kbd> refresh &nbsp; <kbd>p</kbd> phone &nbsp; <kbd>t</kbd> theme &nbsp; <kbd>s</kbd> settings &nbsp;·&nbsp; v${esc(s.version)}${addrs ? " &nbsp;·&nbsp; " + addrs : ""}`;
-  renderPeers(s); renderXfers(s); renderOffer(s); renderRoom(s);
+  $("foot").innerHTML = `<kbd>r</kbd> refresh &nbsp; <kbd>p</kbd> invite &nbsp; <kbd>t</kbd> theme &nbsp; <kbd>s</kbd> settings &nbsp;·&nbsp; v${esc(s.version)}${addrs ? " &nbsp;·&nbsp; " + addrs : ""}`;
+  renderPeers(s); renderXfers(s); renderOffer(s);
 }
-// The room runs whenever bit-flow does; this button opens it, and anyone on
-// the same Wi-Fi who opens the same address joins.
-function renderRoom(s) {
-  const url = s.phone_url || "";
-  $("roomBig").classList.toggle("off", !url);
-  if (url) $("roomBig").href = url; else $("roomBig").removeAttribute("href");
-  $("roomSub").textContent = url
-    ? `phones, tablets and laptops on this wi-fi open ${url.replace("http://", "")} to join, then send to each other. no install.`
-    : "connect to a wi-fi or wired network first.";
-}
-function openRoom() {
-  if (!state || !state.phone_url) { toast("no network address yet"); return; }
-  window.open(state.phone_url, "_blank", "noopener");
-}
+// nearby: computers running bit-flow (direct, encrypted, fast) and phones or
+// browsers in the room (through this computer). One list; the app picks the
+// path, so a computer with bit-flow never drops to the browser lane.
 function renderPeers(s) {
-  const el = $("peers");
-  if (!s.peers || !s.peers.length) {
-    el.innerHTML = `<div class="empty">${s.scanning ? "looking for devices…" : "nobody here yet — open bit-flow (or run <code>bitflow recv</code>) on the other computer, same network."}</div>`;
-    return;
-  }
-  el.innerHTML = s.peers.map((p) => {
-    const addr = esc(p.addrs[0] + ":" + p.port);
-    return `<div class="peer"><span class="n">${esc(p.name)}</span><span class="a">${esc(osName(p.os))} · ${esc(p.addrs[0])}</span>
-      <span class="acts"><button class="key" data-send="files" data-addr="${addr}" data-name="${esc(p.name)}">files</button><button class="key" data-send="folder" data-addr="${addr}" data-name="${esc(p.name)}">folder</button><button class="key" data-game="1" data-addr="${addr}" data-name="${esc(p.name)}">game</button></span></div>`;
-  }).join("");
+  const btn = (kind, addr, name, label, extra = "") =>
+    `<button class="key" data-send="${kind}" data-addr="${esc(addr)}" data-name="${esc(name)}"${extra}>${label}</button>`;
+  const computers = (s.peers || []).map((p) => {
+    const addr = p.addrs[0] + ":" + p.port;
+    return `<div class="peer"><span class="dot" title="bit-flow: direct and encrypted"></span>
+      <span class="who"><span class="n">${esc(p.name)}</span><span class="a">${esc(osName(p.os))} · ${esc(p.addrs[0])}</span></span>
+      <span class="acts">${btn("files", addr, p.name, "files")}${btn("folder", addr, p.name, "folder")}<button class="key" data-game="1" data-addr="${esc(addr)}" data-name="${esc(p.name)}">game</button></span></div>`;
+  });
+  const browsers = (s.room_peers || []).map((p) => {
+    const addr = "room:" + p.id, paired = p.paired ? ` data-paired="1"` : "";
+    return `<div class="peer browser"><span class="dot" title="browser: goes through this computer"></span>
+      <span class="who"><span class="n">${esc(p.name)}</span><span class="a">${esc(p.kind.toLowerCase())} · browser${p.paired ? ` · <span class="ok">paired</span>` : ""}</span></span>
+      <span class="acts">${btn("files", addr, p.name, "files", paired)}${btn("folder", addr, p.name, "folder", paired)}</span></div>`;
+  });
+  const all = computers.concat(browsers);
+  $("peers").innerHTML = all.length ? all.join("") : `<div class="empty">${s.scanning ? "looking for devices…"
+    : "no one nearby yet. open bit-flow on another computer on this network, or invite a phone below."}</div>`;
+  const url = (s.phone_url || "").replace("http://", "");
+  $("invite").hidden = !url;
+  $("inviteURL").textContent = url;
 }
 // Finished transfers: the newest few show, the rest fold behind "show older".
 const RECENT = 5;
@@ -444,7 +452,7 @@ function ago(t) {
 function finishedRow(x) {
   const label = {done: "done", failed: "failed", declined: "declined", cancelled: "stopped"}[x.state] ?? x.state;
   const meta = [bytes(x.total), x.files + (x.files === 1 ? " file" : " files")];
-  if (x.state === "done" && x.rate > 0 && x.finished && new Date(x.finished) - new Date(x.started) >= 1000) meta.push(bytes(x.rate) + "/s");
+  if (x.state === "done" && x.rate >= 1000 && x.finished && new Date(x.finished) - new Date(x.started) >= 1000) meta.push(bytes(x.rate) + "/s");
   if (x.finished) meta.push(ago(x.finished));
   const items = x.items || [];
   const expanded = openItems.has(x.id);
@@ -523,6 +531,7 @@ function renderOffer(s) {
   if (of.steam) notes.unshift(of.library ? `<div class="note acc">steam game — installs into your steam library; restart steam afterwards</div>`
     : `<div class="note">steam game — no steam library here, so it's saved as a folder</div>`);
   if (of.other_os) notes.push(`<div class="note warn">this is their ${esc(of.other_os)} copy; steam may need to download your version</div>`);
+  if (of.via === "room") notes.push(`<div class="note">from a browser on your wi-fi. not encrypted; existing files are kept and new ones get "(1)" names.</div>`);
   $("ofNotes").innerHTML = notes.join("");
   open("offerDlg");
 }
@@ -559,19 +568,23 @@ async function pickGame(addr, name) {
 $("gmCancel").onclick = () => close("gameDlg");
 
 let sendTarget = null;
-async function startSend(kind, addr, name) {
+async function startSend(kind, addr, name, paired) {
   if (!addr) { toast("type the other computer's address first"); $("addr").focus(); return; }
   const r = await api("/api/pick", {kind}).catch((e) => (toast(e.message), null));
   if (!r || !r.paths.length) return;
-  sendTarget = {addr, name, paths: r.paths};
-  $("sdPeer").textContent = name; $("sdPeer2").textContent = name;
+  const room = addr.startsWith("room:");
+  sendTarget = {addr, name, paths: r.paths, noCode: room && paired};
+  $("sdPeer").textContent = name; $("sdPeer2").textContent = room ? name + "'s screen" : name;
   $("sdPaths").innerHTML = r.paths.map((p) => `<li>${esc(tidy(p))}</li>`).join("");
+  $("sdCodeBox").hidden = sendTarget.noCode;
+  $("sdVia").textContent = room ? "goes to their browser through this computer: slower than bit-flow, and not encrypted. several files arrive as one zip." : "";
   $("sdErr").textContent = ""; $("sdCode").value = "";
-  open("sendDlg"); $("sdCode").focus();
+  open("sendDlg");
+  if (sendTarget.noCode) $("sdGo").focus(); else $("sdCode").focus();
 }
 $("sdGo").onclick = async () => {
   const code = $("sdCode").value.replace(/\D/g, "");
-  if (code.length < 6) { $("sdErr").textContent = "enter the 6-digit code shown on " + sendTarget.name; return; }
+  if (!sendTarget.noCode && code.length < 6) { $("sdErr").textContent = "enter the 6-digit code shown on " + sendTarget.name; return; }
   $("sdGo").disabled = true;
   try { await api("/api/send", {to: sendTarget.addr, peer: sendTarget.name, paths: sendTarget.paths, steam: sendTarget.steam || "", code}); close("sendDlg"); }
   catch (e) { $("sdErr").textContent = e.message; }
@@ -626,13 +639,13 @@ function openPhone() {
   open("phoneDlg");
 }
 $("phoneBtn").onclick = openPhone;
-$("roomQR").onclick = openPhone;
+$("inviteQR").onclick = openPhone;
 $("phoneClose").onclick = () => close("phoneDlg");
 
 document.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
-  if (b.dataset.send) startSend(b.dataset.send, b.dataset.addr, b.dataset.name);
+  if (b.dataset.send) startSend(b.dataset.send, b.dataset.addr, b.dataset.name, !!b.dataset.paired);
   else if (b.dataset.game) pickGame(b.dataset.addr, b.dataset.name);
   else if (b.dataset.manual) { const a = $("addr").value.trim(); startSend(b.dataset.manual, a, a); }
   else if (b.dataset.cancel) api(`/api/transfers/${b.dataset.cancel}/cancel`, {}).catch((e) => toast(e.message));
@@ -655,7 +668,7 @@ document.addEventListener("keydown", (e) => {
   if (isOpen("phoneDlg")) { if (e.key === "Escape" || e.key === "Enter") close("phoneDlg"); return; }
   if (isOpen("offerDlg")) return;
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("main").hidden) return;
-  const actions = {r: scan, t: cycleTheme, s: openSettings, p: openPhone, o: openRoom};
+  const actions = {r: scan, t: cycleTheme, s: openSettings, p: openPhone};
   if (actions[e.key]) {
     e.preventDefault(); // or the key lands in a field the action just focused
     actions[e.key]();

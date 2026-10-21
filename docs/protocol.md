@@ -142,7 +142,7 @@ a `type` field. No file data goes over it.
 |---|---|---|---|
 | page | `hello` | `name`, `key`, `kind` | first message; `key` from an earlier `welcome` rejoins the same seat (30 s grace) |
 | server | `welcome` | `id`, `key`, `code`, `name`, `kind` | your identity, secret key and 6-digit code |
-| server | `roster` | `members[]`: `id`, `name`, `kind`, `paired`, `online` | everyone else; `paired` = you can send without a code |
+| server | `roster` | `members[]`: `id`, `name`, `kind`, `paired`, `online`, `host` | everyone else; `paired` = you can send without a code; `host` = the bit-flow app (its code is its pairing code) |
 | page | `rename` | `name` | server answers `name` (it may add a number to keep names unique) |
 | page | `offer` | `to`, `code`, `files[]`: `name`, `size` | ask to send; `code` is ignored once paired |
 | server | `offered` / `offer-error` | `xfer`, `to` / `to`, `error` | to the sender |

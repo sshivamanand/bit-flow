@@ -145,8 +145,9 @@ what has landed per milestone.
 
 ## CI and releases
 
-- `.github/workflows/ci.yml`: push to `main` and PRs. Race tests on macOS + Linux, Windows tests (allowed to
-  fail until proven), gofmt, vet for every OS, `make cross`. The repo is private: macOS minutes bill 10×,
+- `.github/workflows/ci.yml`: push to `main` and PRs. Race tests on macOS + Linux, plain tests on Windows (all
+  required), gofmt, vet for every OS, `make cross`. Windows CI caught a real resume bug, a handle leak and two
+  fixture bugs, so keep it required. The repo is private: macOS minutes bill 10×,
   so don't add triggers casually.
 - `.github/workflows/release.yml` + `.goreleaser.yaml`: pushing a `vX.Y.Z` tag builds archives for all six
   targets with `main.version` set. Only tag after `make test`, `make e2e` and CI are green.

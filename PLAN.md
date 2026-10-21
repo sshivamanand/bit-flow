@@ -119,5 +119,5 @@ binary. A game update re-sent only the one changed file (300 KB of a 3.3 MB game
 ## Still to do (needs two real laptops)
 - Run `bitflow bench --to <ip> --sweep` and a real game transfer over Wi‑Fi, Wi‑Fi + Ethernet, and a
   Thunderbolt cable, and record the numbers here (link ceiling vs. bit-flow).
-- Run the suite on a Windows machine (CI runs it, but nobody has tried the app, dialogs and Steam paths
-  on Windows hardware yet).
+- Try the app, native dialogs and Steam paths on real Windows hardware (the full test suite passes on Windows CI,
+  after it caught a resume-key bug, an upload handle leak and two fixture bugs; all fixed in v0.1.1).

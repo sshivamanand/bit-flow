@@ -51,6 +51,28 @@ bitflow recv --to ~/Games --from shivam --code 482913      # on the other laptop
 
 `bitflow peers` lists bit-flow devices on the network.
 
+### Steam games
+
+```bash
+bitflow games                                   # installed Steam games, all libraries
+bitflow send --steam "elden ring" --to gaming-rig
+```
+
+The game goes straight into the receiver's Steam library. Restart Steam and it shows as installed. If they
+already have an older version, only the changed files are sent. In the app, use **game** next to a device.
+
+### Phones, and friends without bit-flow
+
+Every bit-flow computer also answers in a browser at the address it prints (and shows as a QR code;
+press `p` in the app). Phones enter the pairing code and can send files to a receiver, or download what a
+`send --wait` computer offers. Laptops get bit-flow itself from the same page, with no internet needed:
+
+```bash
+curl -fsSL http://192.168.1.40:7700/get/sh | sh
+```
+
+Run `make cross` on your machine first so it can hand out builds for every OS, not just its own.
+
 The receiver is asked to accept (`--yes` skips the prompt). Files keep the sender's folder structure,
 permissions and timestamps. Everything is encrypted (TLS 1.3, with keys agreed through the pairing code).
 

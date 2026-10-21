@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -344,6 +345,32 @@ func (h *hub) pair(c net.Conn, sid proto.SessionID) (secure.Paired, error) {
 		time.Sleep(pairPenalty)
 	}
 	return p, err
+}
+
+// checkCode verifies a code typed into a browser. It shares the PAKE path's
+// failure count, penalty and rotation, so the web page is no easier to guess.
+func (h *hub) checkCode(code string) bool {
+	h.pairMu.Lock()
+	defer h.pairMu.Unlock()
+	if subtle.ConstantTimeCompare([]byte(code), []byte(h.currentCode())) == 1 {
+		h.mu.Lock()
+		h.failures = 0
+		h.mu.Unlock()
+		return true
+	}
+	h.mu.Lock()
+	h.failures++
+	rotated := ""
+	if h.failures >= maxPairFailures {
+		h.code, h.failures = secure.NewCode(), 0
+		rotated = h.code
+	}
+	h.mu.Unlock()
+	if rotated != "" && h.onCodeChange != nil {
+		h.onCodeChange(rotated)
+	}
+	time.Sleep(pairPenalty)
+	return false
 }
 
 // hubLink is a listening session's view of its incoming data streams.

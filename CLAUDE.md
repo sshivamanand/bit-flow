@@ -18,7 +18,7 @@ Repo: `github.com/sshivamanand/bit-flow` (Go module path is the same). Author: S
 make build                     # bin/bitflow (stripped, -trimpath)
 make test                      # go test -race ./...
 make bench                     # loopback engine ceiling, stream sweep
-make e2e                       # real binary, every user-facing flow (macOS, ~1 min, ~10 GB sparse temp data)
+make e2e                       # real binary, 23 user-facing flows (macOS, ~1 min, ~10 GB sparse temp data)
 make cross                     # dist/bitflow-<os>-<arch>[.exe] for darwin/windows/linux × arm64/amd64
 go vet ./... && GOOS=windows go vet ./...   # always vet Windows too: per-OS files exist
 gofmt -l .                     # must print nothing
@@ -54,6 +54,8 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
 | `internal/planner` | Sender side: walk paths → `Manifest`; split into work `Unit`s (32 MiB chunks of big files, packs of small files), honoring resume info. |
 | `internal/store` | Receiver side: path safety, conflict policy, preallocation, out-of-order `WriteAt`, packs, `.bitflow-partial` + rename, resume journal, free-space checks. |
 | `internal/transfer` | The engine: `Sender` / `Receiver`, control session, N data streams, pipelines, retries, compression (`compress.go`), stream gate + tuner (`tuner.go`), multipath (`paths.go`). |
+| `internal/web` | Browser side of the transfer port: `Split` (peer vs HTTP by first bytes), `/get` + installer, phone upload/download pages, QR (terminal + SVG). |
+| `internal/steam` | Steam libraries and installed games (VDF parser); `BITFLOW_STEAM_ROOT` points it at a fake install in tests. |
 | `internal/advisor` | Plain-English advice from the route (double air hop, multipath, cable, client isolation). |
 | `internal/netinfo` | Interface listing with friendly labels (Wi-Fi, Ethernet, Thunderbolt Bridge). |
 | `internal/discovery` | Find peers: UDP multicast + broadcast query, unicast answers, TCP /24 probe fallback, name lookup. |
@@ -63,8 +65,8 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
 | `internal/units` | Size parsing/formatting. |
 
 `internal/transfer` is split into `link.go` (who dials and who listens: `dialLink`, `hub`), `sender.go` and
-`receiver.go` (session logic, independent of who dialed), and `common.go`. Later milestones add
-`internal/web` (browser fallback + `/get` bootstrap) and `internal/steam`. Check PLAN.md for what has landed.
+`receiver.go` (session logic, independent of who dialed), and `common.go`. Check PLAN.md for
+what has landed per milestone.
 
 ## Invariants (don't break these)
 
@@ -72,6 +74,9 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
   TLS 1.3 pinned to the exchanged fingerprints. Data connections are TLS with the same pins (`KindData`), or
   `KindDataRaw` with an HMAC token from the pairing key. `KindProbe` only returns public discovery info.
   No unauthenticated path to files exists. Keep it that way.
+- **Browser pages on the LAN port** need the pairing code (`hub.checkCode`, same penalty and rotation as PAKE)
+  before any upload/download. Uploads go through `store.SafeJoin` and never overwrite. Only `/`, `/get*` and
+  `/web/info` are public.
 - **The UI server only listens on loopback**, checks the Host header, needs a session cookie or the launch
   token, and requires `X-Bitflow: 1` on writes. Never store raw session IDs (hash them).
 - **Receiver never trusts sender paths.** Everything goes through `store.SafeJoin`. Never write outside `Dest`.
@@ -98,7 +103,7 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
   CDNs: the app must work offline on a LAN. Keep `index.html` a single self-contained file.
 
 - Go standard library first. Current deps: `zeebo/xxh3`, `filippo.io/cpace`, `klauspost/compress` (zstd),
-  `golang.org/x/sys`, `golang.org/x/net` (multicast). Native dialogs shell out to the OS (no zenity). Justify any new dependency (speed, correctness, or pure-Go portability). Builds
+  `golang.org/x/sys`, `golang.org/x/net` (multicast), `rsc.io/qr`. Native dialogs shell out to the OS (no zenity). Justify any new dependency (speed, correctness, or pure-Go portability). Builds
   must stay `CGO_ENABLED=0` for all six targets.
 - Per-OS code goes in `_darwin.go` / `_linux.go` / `_windows.go` / `_other.go` files with matching build
   constraints, never `runtime.GOOS` switches on hot paths.

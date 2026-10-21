@@ -84,6 +84,9 @@ func (bp *bufPool) put(b *[]byte) { bp.p.Put(b) }
 
 // tune applies socket options to a TCP connection. sockBuf <= 0 keeps OS autotuning.
 func tune(c net.Conn, sockBuf int) {
+	if u, ok := c.(interface{ Unwrap() net.Conn }); ok {
+		c = u.Unwrap() // e.g. a connection the web mux peeked at
+	}
 	tc, ok := c.(*net.TCPConn)
 	if !ok {
 		return

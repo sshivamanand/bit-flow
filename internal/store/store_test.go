@@ -63,7 +63,7 @@ func TestRangeSet(t *testing.T) {
 }
 
 func TestPolicyParse(t *testing.T) {
-	for _, s := range []string{"error", "skip", "rename", "overwrite"} {
+	for _, s := range []string{"error", "skip", "rename", "overwrite", "update"} {
 		p, err := ParsePolicy(s)
 		if err != nil || p.String() != s {
 			t.Fatalf("%s → %v %v", s, p, err)

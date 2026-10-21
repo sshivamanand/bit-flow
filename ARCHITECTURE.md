@@ -186,18 +186,22 @@ senders on demand. A web UI on `127.0.0.1:7710` drives it through a small JSON A
   keyboard shortcuts. Themes: flow (lime, default), ember (orange), violet, paper (light, rust).
 - **History** of finished transfers persists across restarts.
 
-### 4.11 Bootstrap — get it onto a friend's laptop in seconds
+### 4.11 Bootstrap — get it onto a friend's laptop in seconds (built)
+Transfers and browsers share one port: `web.Split` peeks at the first 4 bytes (`BFLW` vs an HTTP method).
 Your peer serves its own binaries at `http://<your-ip>:7700/get` (macOS arm64/amd64, Windows, Linux),
 picking the right one from the browser's User-Agent. No internet needed.
 - macOS: also offer `curl -fsSL http://<ip>:7700/get/sh | sh`. curl doesn't add macOS's quarantine flag, so there's no Gatekeeper prompt.
 - Windows: SmartScreen shows "More info → Run anyway" once. Firewall prompt: allow on **Private** networks.
 
-### 4.12 Browser fallback (phones / no binary)
+### 4.12 Browser fallback (phones / no binary) (built)
+Code login reuses the hub's rate limiting. Uploads use 8 MB chunks, 4 in parallel, are idempotent, and never
+overwrite (`name (1).ext`). Downloads use `http.ServeContent` (Range) and store-only streamed zips for folders.
 The same web UI is exposed to the LAN, protected by the pairing code. It uses parallel chunked
 `PUT` uploads (`File.slice`) and `Range`-resumable downloads. Chromium's File System Access API lets the
 browser stream large downloads straight to disk.
 
-### 4.13 Game mode (later)
+### 4.13 Game mode (built)
+The `update` conflict policy (skip identical, replace changed) turns re-sending a game into an incremental update.
 Detects Steam libraries (`libraryfolders.vdf`) on the sender and lists installed games by name.
 Sending a game ships `steamapps/common/<dir>` + `appmanifest_<id>.acf` straight into the receiver's
 Steam library. After a Steam restart, the game shows as installed.

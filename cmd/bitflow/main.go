@@ -21,6 +21,8 @@ Usage:
   bitflow recv  --from NAME|HOST --to DIR        fetch from a sender that is waiting
   bitflow send  PATH... [--to NAME|HOST] [--code CODE] [--streams 8] [--raw]
   bitflow send  PATH... --wait                   wait for a receiver to fetch
+  bitflow send  --steam GAME [--to NAME|HOST]     send an installed Steam game into their library
+  bitflow games                                  list installed Steam games
   bitflow peers                                  list bit-flow devices on this network
   bitflow bench (--loopback | --to NAME|HOST --code CODE) [--size 10GB] [--sweep] [--raw]
   bitflow ifaces
@@ -49,6 +51,8 @@ func main() {
 		err = cmdSend(ctx, args)
 	case "bench":
 		err = cmdBench(ctx, args)
+	case "games":
+		err = cmdGames(args)
 	case "peers", "scan":
 		err = cmdPeers(ctx, args)
 	case "ifaces", "interfaces":

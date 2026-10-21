@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/sshivamanand/bit-flow/internal/steam"
 )
 
 //go:embed static/index.html
@@ -73,6 +75,13 @@ func (s *Server) routes() http.Handler {
 	}))
 	mux.HandleFunc("POST /api/pick", s.auth(s.pick))
 	mux.HandleFunc("POST /api/send", s.auth(s.send))
+	mux.HandleFunc("GET /api/games", s.auth(func(w http.ResponseWriter, r *http.Request) {
+		games := s.app.Games()
+		if games == nil {
+			games = []steam.Game{}
+		}
+		writeJSON(w, games)
+	}))
 	mux.HandleFunc("POST /api/offers/{id}", s.auth(s.decide))
 	mux.HandleFunc("POST /api/transfers/{id}/cancel", s.auth(func(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, s.app.Cancel(r.PathValue("id")))
@@ -281,8 +290,14 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 		Peer  string   `json:"peer"`
 		Paths []string `json:"paths"`
 		Code  string   `json:"code"`
+		Steam string   `json:"steam"` // app ID: send this Steam game instead of paths
 	}
 	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.Steam != "" {
+		id, err := s.app.SendSteam(req.To, req.Peer, req.Steam, req.Code)
+		reply(w, map[string]string{"id": id}, err)
 		return
 	}
 	id, err := s.app.Send(req.To, req.Peer, req.Paths, req.Code, false)

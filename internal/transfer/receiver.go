@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sshivamanand/bit-flow/internal/proto"
+	"github.com/sshivamanand/bit-flow/internal/steam"
 	"github.com/sshivamanand/bit-flow/internal/store"
 )
 
@@ -40,6 +41,9 @@ type OfferInfo struct {
 	Resumed bool  // continues an interrupted transfer
 	Renames map[string]string
 	Raw     bool // data streams will be unencrypted
+
+	Steam        *proto.SteamGame // the offer is a Steam game
+	SteamLibrary string           // where it will be installed ("" = no Steam here; saved as a folder)
 }
 
 // Decision answers an offer. A non-empty Dest overrides the receiver's default folder.
@@ -57,7 +61,10 @@ type Receiver struct {
 	Code     string // pairing code when listening; generated if empty
 	AllowRaw bool   // honor senders asking for unencrypted data streams
 	SockBuf  int
-	Retries  int // Fetch: reconnect attempts after a dropped connection; 0 = default, <0 = none
+	// SteamLibrary receives Steam games: "" finds this computer's main library,
+	// "-" turns that off (games are saved like any folder).
+	SteamLibrary string
+	Retries      int // Fetch: reconnect attempts after a dropped connection; 0 = default, <0 = none
 
 	// Confirm is asked before accepting an offer; nil accepts everything.
 	Confirm func(o *proto.Offer, info OfferInfo) Decision
@@ -140,6 +147,12 @@ func (r *Receiver) CurrentCode() string {
 	return h.currentCode()
 }
 
+// CheckCode verifies a pairing code typed into a browser (rate-limited like pairing).
+func (r *Receiver) CheckCode(code string) bool {
+	h, err := r.ensureHub()
+	return err == nil && h.checkCode(code)
+}
+
 // Serve accepts senders until ctx is cancelled. With once set, it returns
 // after the first transfer finishes, with that transfer's error.
 func (r *Receiver) Serve(ctx context.Context, ln net.Listener, once bool) error {
@@ -191,6 +204,19 @@ func (r *Receiver) Fetch(ctx context.Context, addr, code string) (Result, error)
 			return Result{}, err
 		}
 	}
+}
+
+func (r *Receiver) steamLibrary() string {
+	switch r.SteamLibrary {
+	case "-":
+		return ""
+	case "":
+		if libs := steam.Libraries(); len(libs) > 0 {
+			return libs[0]
+		}
+		return ""
+	}
+	return r.SteamLibrary
 }
 
 // SetDefaults changes the destination and conflict policy for future offers.
@@ -317,8 +343,15 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, lk link) (r
 	}()
 
 	raw := offer.Raw && r.AllowRaw
+	steamLib := ""
+	if offer.Steam != nil && !offer.Bench {
+		if steamLib = r.steamLibrary(); steamLib != "" {
+			// Straight into steamapps/, updating an older copy in place.
+			defaultDest, policy = filepath.Join(steamLib, "steamapps"), store.PolicyUpdate
+		}
+	}
 	prepare := func(dest string) (*store.Plan, OfferInfo, error) {
-		info := OfferInfo{Raw: raw}
+		info := OfferInfo{Raw: raw, Steam: offer.Steam, SteamLibrary: steamLib}
 		if offer.Bench {
 			return nil, info, nil
 		}

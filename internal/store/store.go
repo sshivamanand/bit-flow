@@ -40,6 +40,7 @@ const (
 	PolicySkip                    // keep existing files, send the rest
 	PolicyRename                  // put each conflicting top-level item at "Name (1)"
 	PolicyOverwrite               // replace existing files
+	PolicyUpdate                  // skip identical files, replace the rest (game updates)
 )
 
 func ParsePolicy(s string) (Policy, error) {
@@ -52,12 +53,14 @@ func ParsePolicy(s string) (Policy, error) {
 		return PolicyRename, nil
 	case "overwrite":
 		return PolicyOverwrite, nil
+	case "update":
+		return PolicyUpdate, nil
 	}
-	return 0, fmt.Errorf("unknown conflict policy %q (use error, skip, rename or overwrite)", s)
+	return 0, fmt.Errorf("unknown conflict policy %q (use error, skip, rename, overwrite or update)", s)
 }
 
 func (p Policy) String() string {
-	return [...]string{"error", "skip", "rename", "overwrite"}[p]
+	return [...]string{"error", "skip", "rename", "overwrite", "update"}[p]
 }
 
 // Options configure a Plan.
@@ -178,7 +181,7 @@ func Prepare(root string, entries []proto.FileEntry, opts Options) (*Plan, error
 				st.skip, st.done = true, true
 			} else if opts.Policy == PolicySkip {
 				st.skip, st.done = true, true
-			} else if opts.Policy != PolicyOverwrite || info.IsDir() {
+			} else if (opts.Policy != PolicyOverwrite && opts.Policy != PolicyUpdate) || info.IsDir() {
 				conflicts = append(conflicts, rel)
 			}
 			continue
@@ -190,7 +193,7 @@ func Prepare(root string, entries []proto.FileEntry, opts Options) (*Plan, error
 			conflicts = append(conflicts, rel) // never replace a directory with a file
 		case identical && opts.Policy != PolicyOverwrite, opts.Policy == PolicySkip:
 			st.skip, st.done, st.remaining = true, true, 0
-		case opts.Policy == PolicyOverwrite:
+		case opts.Policy == PolicyOverwrite, opts.Policy == PolicyUpdate:
 			if j != nil {
 				st.resume(j.Files[i])
 			}
@@ -539,7 +542,7 @@ func (p *Plan) makeLinks() error {
 		if st.entry.Link == "" || st.done {
 			continue
 		}
-		if p.opts.Policy == PolicyOverwrite {
+		if p.opts.Policy == PolicyOverwrite || p.opts.Policy == PolicyUpdate {
 			if info, err := os.Lstat(st.final); err == nil && !info.IsDir() {
 				_ = os.Remove(st.final)
 			}

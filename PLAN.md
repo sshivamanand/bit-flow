@@ -91,10 +91,23 @@ M4 results (Apple M4, 2026-10-21):
 - Found and fixed: unreachable extra links stalled stream setup ~8 s (macOS drops rather than refuses).
   Links are now probed with a 700 ms timeout.
 
-### M5 — Reach
-- `/get` bootstrap page serving binaries for every OS.
-- Browser fallback mode for phones.
-- Game mode (Steam library detection + appmanifest).
+### M5 — Reach ✅
+- **One port for everything**: `web.Split` peeks at each connection's first 4 bytes. `BFLW` goes to the transfer
+  hub, an HTTP method goes to the web server. One firewall rule, one address to share.
+- **`/get`**: any bit-flow serves itself plus `make cross` binaries found next to it or in `dist/`. There's a
+  download page (OS-detected), `curl -fsSL http://IP:7700/get/sh | sh` (no Gatekeeper quarantine) and a
+  PowerShell line for Windows.
+- **Phones**: the same address shows a page. After entering the pairing code (rate-limited and rotated exactly like
+  PAKE attempts), a phone can upload to a receiver (8 MB chunks, 4 in parallel, retried, out-of-order safe,
+  never overwrites) or download from `send --wait` (Range-resumable files, folders as streamed store-only zips).
+- **QR codes**: in the `recv` / `send --wait` banners (terminal half-blocks) and the app's **phone** panel (`p`).
+- **Steam**: `bitflow games` lists installed games across all libraries (VDF parser, old and new
+  `libraryfolders.vdf`, skips half-installed games). `send --steam NAME` sends `common/<dir>` + `appmanifest`,
+  and the receiver drops them into its own Steam library with the new **`update`** policy (identical files
+  skipped, changed files replaced), warning about OS mismatches. The app has a **game** button per device.
+
+M5 results (2026-10-21): a 31 MB phone-page upload arrived byte-exact. The installer installed a working
+binary. A game update re-sent only the one changed file (300 KB of a 3.3 MB game). E2E suite now at 23 checks.
 
 ### M6 — Polish
 - Releases (goreleaser), transfer history, settings, dark mode.

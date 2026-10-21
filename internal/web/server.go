@@ -28,12 +28,12 @@ var page []byte
 
 // Options describe what this computer offers to browsers.
 type Options struct {
-	Name      func() string          // device name shown on the page
-	CheckCode func(code string) bool // verifies the pairing code (rate-limited by the caller)
-	UploadDir func() string          // non-nil: browsers can send files into this folder
-	Shared    []Shared               // non-empty: browsers can download these
-	Binaries  func() []Binary        // offered at /get
-	OnUpload  func(name string, size int64, from string)
+	Name      func() string                             // device name shown on the page
+	CheckCode func(code string) bool                    // verifies the pairing code (rate-limited by the caller)
+	UploadDir func() string                             // non-nil: browsers can send files into this folder
+	Shared    []Shared                                  // non-empty: browsers can download these
+	Binaries  func() []Binary                           // offered at /get
+	OnUpload  func(rel string, size int64, from string) // rel: path inside UploadDir, with "/" (e.g. "Photos/a.jpg")
 }
 
 // Shared is one item a browser may download.
@@ -72,6 +72,7 @@ type server struct {
 
 type upload struct {
 	mu      sync.Mutex
+	root    string
 	final   string
 	partial string
 	f       *os.File
@@ -301,7 +302,7 @@ func (s *server) startUpload(w http.ResponseWriter, r *http.Request) {
 		replyErr(w, err)
 		return
 	}
-	u := &upload{final: final, partial: partial, f: f, size: req.Size, chunks: map[int64]int64{}, from: clientName(r), touched: time.Now()}
+	u := &upload{root: root, final: final, partial: partial, f: f, size: req.Size, chunks: map[int64]int64{}, from: clientName(r), touched: time.Now()}
 	id := randomID(12)
 	s.mu.Lock()
 	s.uploads[id] = u
@@ -384,7 +385,11 @@ func (s *server) finish(id string, u *upload) error {
 		return err
 	}
 	if s.o.OnUpload != nil {
-		s.o.OnUpload(filepath.Base(final), u.size, u.from)
+		rel, err := filepath.Rel(u.root, final)
+		if err != nil {
+			rel = filepath.Base(final)
+		}
+		s.o.OnUpload(filepath.ToSlash(rel), u.size, u.from)
 	}
 	return nil
 }

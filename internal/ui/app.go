@@ -13,6 +13,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -59,6 +61,9 @@ type App struct {
 	addrsAt   time.Time
 	phoneURL  string // browser address on the LAN
 	phoneQR   string // SVG
+
+	uploads   history.Batches  // browser uploads, grouped per folder or run of files
+	batchRows map[string]*xfer // batch id → its row
 }
 
 // xfer is one transfer as the UI shows it.
@@ -82,6 +87,8 @@ type xfer struct {
 	Saved    int64     `json:"saved,omitempty"` // bytes compression kept off the wire
 	Link     string    `json:"link,omitempty"`  // e.g. "Wi-Fi → Ethernet" or "Wi-Fi + Thunderbolt Bridge"
 	Tips     []string  `json:"tips,omitempty"`
+	Items    []item    `json:"items,omitempty"` // browser uploads: the files in this row
+	More     int       `json:"more,omitempty"`  // files beyond the itemsLimit kept in Items
 
 	progress func() (done int64, accepted bool)
 	refresh  func(x *xfer) // optional: live details, called with a.mu held
@@ -90,6 +97,15 @@ type xfer struct {
 	lastDone int64
 	lastT    time.Time
 }
+
+// item is one file of a grouped browser upload, relative to the row's folder.
+type item struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// itemsLimit bounds the file list kept per row (it's saved with the history).
+const itemsLimit = 1000
 
 // offer is an incoming transfer waiting for the user's decision.
 type offer struct {
@@ -175,6 +191,7 @@ func (a *App) Start(ctx context.Context, port int) error {
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
+		a.uploads.Flush()
 	}()
 	for _, ad := range a.localAddrs() {
 		if ip := net.ParseIP(ad.IP); ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
@@ -355,17 +372,82 @@ func logHistory(x *xfer, res transfer.Result) {
 		Bytes: res.Bytes, Already: res.Already, Seconds: x.Finished.Sub(x.Started).Seconds(), State: x.State, Error: x.Error})
 }
 
-// onBrowserUpload records a file a phone or browser sent.
-func (a *App) onBrowserUpload(name string, size int64, from string) {
+// onBrowserUpload records a file a phone or browser sent. Browsers upload
+// file by file, so files from one sender are grouped into one row per
+// top-level folder (or per run of loose files) instead of a row each.
+func (a *App) onBrowserUpload(rel string, size int64, from string) {
 	now := time.Now()
-	_ = history.Append(history.Record{Time: now, Dir: "received", Peer: from, Name: name, Files: 1, Bytes: size, State: "done"})
+	id, isNew := a.uploads.Add(rel, size, from, now)
+	folder := history.TopFolder(rel)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.transfers = append([]*xfer{{
-		ID: newID(), Dir: "in", Peer: from, Name: name, Files: 1, Total: size, Done: size,
-		State: "done", Dest: a.cfg.ReceiveDir(), Started: now, Finished: now,
-	}}, a.transfers...)
+	if a.batchRows == nil {
+		a.batchRows = map[string]*xfer{}
+	}
+	x := a.batchRows[id]
+	if isNew || x == nil {
+		x = &xfer{ID: newID(), Dir: "in", Peer: from, State: "done", Started: now}
+		a.transfers = append([]*xfer{x}, a.transfers...)
+		for bid := range a.batchRows { // forget rows whose batch has closed
+			if !a.uploads.Open(bid) {
+				delete(a.batchRows, bid)
+			}
+		}
+		a.batchRows[id] = x
+	}
+	x.Files++
+	x.Total += size
+	x.Done = x.Total
+	x.Finished = now
+	if secs := now.Sub(x.Started).Seconds(); secs > 0 {
+		x.Rate = float64(x.Total) / secs
+	}
+	x.Name = history.BatchName(folder, path.Base(rel), x.Files)
+	dest := a.cfg.ReceiveDir()
+	switch {
+	case folder != "":
+		x.Dest = filepath.Join(dest, filepath.FromSlash(folder))
+	case x.Files == 1:
+		x.Dest = filepath.Join(dest, filepath.FromSlash(rel))
+	default:
+		x.Dest = dest
+	}
+	if len(x.Items) < itemsLimit {
+		x.Items = append(x.Items, item{Name: strings.TrimPrefix(rel, folder+"/"), Size: size})
+	} else {
+		x.More++
+	}
 	a.saveHistoryLocked()
+}
+
+// Remove deletes one finished transfer from the list.
+func (a *App) Remove(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i, x := range a.transfers {
+		if x.ID != id {
+			continue
+		}
+		if x.State == "running" || x.State == "waiting" {
+			return errors.New("stop that transfer first")
+		}
+		a.transfers = append(a.transfers[:i], a.transfers[i+1:]...)
+		for bid, row := range a.batchRows {
+			if row == x { // more files from that upload start a fresh row
+				delete(a.batchRows, bid)
+			}
+		}
+		a.saveHistoryLocked()
+		return nil
+	}
+	return errors.New("that transfer isn't in the list")
+}
+
+// ClearHistory removes finished transfers from the list and deletes the
+// transfer log the CLI shares (bitflow history).
+func (a *App) ClearHistory() error {
+	a.ClearFinished()
+	return history.Clear()
 }
 
 // finish records a transfer's outcome. Caller holds a.mu.
@@ -515,6 +597,7 @@ func (a *App) ClearFinished() {
 		}
 	}
 	a.transfers = keep
+	a.batchRows = nil // more files from an open upload start a fresh row
 	a.saveHistoryLocked()
 }
 

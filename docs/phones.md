@@ -52,7 +52,8 @@ Good to know:
 
 Files are uploaded in 8 MB pieces, four at a time, with automatic retries. They land in the computer's
 receive folder. Existing files are never overwritten: a second `IMG_1234.jpg` is saved as
-`IMG_1234 (1).jpg`. Uploads abandoned for 15 minutes are cleaned up.
+`IMG_1234 (1).jpg`. Uploads abandoned for 15 minutes are cleaned up. In the app, an upload shows as one line per folder (or per batch of loose
+files); click **files** to see what's in it.
 
 ## Download files from the host computer
 

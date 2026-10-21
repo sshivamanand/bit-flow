@@ -130,6 +130,17 @@ pairing, zip + key checks, decline, cancel mid-file, reconnect, unique names) pa
 a real browser: two tabs, wrong code, right code, accept, a 3 MB two-file zip delivered, reply without a code,
 decline, and a 375 px phone viewport.
 
+### M8 — Tidy history ✅
+- Browser uploads arrive one file per request, so 300 photos made 300 rows. `history.Batches` groups them per
+  top-level folder, or per run of loose files from one sender (2 min gap), for both the app list and
+  `history.jsonl` (one line per batch, logged when it goes quiet or on shutdown). Old per-file rows merge on load.
+- App: finished rows are one compact line; only the newest 5 show (**show N older**). **files** expands a
+  batch's file list (up to 1,000 kept per row), **×** removes a row, **clear history** (two clicks) clears the
+  list and the log. CLI: `bitflow history --clear`.
+
+M8 results (2026-10-22): ten phone uploads (six photos + a four-file folder) showed as two rows. Expand,
+remove and clear checked in the app; tests cover grouping, gaps, reload, old-row merge, remove and clear.
+
 ## Still to do (needs two real laptops)
 - Run `bitflow bench --to <ip> --sweep` and a real game transfer over Wi‑Fi, Wi‑Fi + Ethernet, and a
   Thunderbolt cable, and record the numbers here (link ceiling vs. bit-flow).

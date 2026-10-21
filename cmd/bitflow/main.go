@@ -25,7 +25,7 @@ Usage:
   bitflow send  --steam GAME [--to NAME|HOST]    send an installed Steam game into their library
   bitflow games                                  list installed Steam games
   bitflow peers                                  list bit-flow devices on this network
-  bitflow history [-n 20]                        past transfers (CLI and app)
+  bitflow history [-n 20] [--clear]              past transfers (CLI and app); --clear deletes them
   bitflow config [name|dest|on_conflict VALUE]   show or change settings
   bitflow bench (--loopback | --to NAME|HOST --code CODE) [--size 10GB] [--sweep] [--raw]
   bitflow ifaces                                 this computer's network links

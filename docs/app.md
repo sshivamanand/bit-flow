@@ -29,8 +29,12 @@ other laptops see under **nearby** and in their accept prompts. Change it any ti
   discovery can't find the other computer.
 - **transfers**: everything in flight and finished, newest first. Running transfers show progress,
   speed, time left, data moved, active streams and how much compression saved, plus which link carries the
-  data and a tip if a setup change would help. Use **stop** to cancel. **show** opens the received folder.
-  **clear finished** tidies the list (your full history stays available through `bitflow history`).
+  data and a tip if a setup change would help. Use **stop** to cancel.
+  Finished transfers shrink to one line each, and only the newest 5 show (**show N older** for the rest).
+  Files a phone or browser uploads are grouped: one line per folder, or per run of loose files from the
+  same device (a pause of 2 minutes starts a new one). **files** lists what's inside, **show** opens it in
+  your file manager, and **×** removes that line. **clear history** (click twice) removes every finished
+  line and deletes the log behind `bitflow history`. Received files are never touched.
 
 ## Incoming transfers
 

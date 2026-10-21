@@ -87,9 +87,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/transfers/{id}/cancel", s.auth(func(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, s.app.Cancel(r.PathValue("id")))
 	}))
+	mux.HandleFunc("POST /api/transfers/{id}/remove", s.auth(func(w http.ResponseWriter, r *http.Request) {
+		reply(w, nil, s.app.Remove(r.PathValue("id")))
+	}))
 	mux.HandleFunc("POST /api/transfers/clear", s.auth(func(w http.ResponseWriter, r *http.Request) {
-		s.app.ClearFinished()
-		writeJSON(w, struct{}{})
+		reply(w, nil, s.app.ClearHistory())
 	}))
 	mux.HandleFunc("POST /api/settings", s.auth(s.settings))
 	mux.HandleFunc("POST /api/reveal", s.auth(s.reveal))

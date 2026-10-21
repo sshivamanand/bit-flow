@@ -20,8 +20,19 @@ import (
 func cmdHistory(args []string) error {
 	fs := flag.NewFlagSet("history", flag.ContinueOnError)
 	n := fs.Int("n", 20, "how many transfers to show")
+	clear := fs.Bool("clear", false, "delete the whole transfer history (with the app open, use its \"clear history\" instead)")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
+	}
+	if *clear {
+		if err := history.Clear(); err != nil {
+			return err
+		}
+		if dir, err := config.Dir(); err == nil {
+			_ = os.Remove(filepath.Join(dir, "history.json")) // the app's saved list
+		}
+		fmt.Println("✓ History deleted.")
+		return nil
 	}
 	rs, err := history.Load(*n)
 	if err != nil {

@@ -164,12 +164,15 @@ func cmdRecv(ctx context.Context, args []string) error {
 	}
 	// One port for everything: bit-flow peers, and browsers (phones, /get).
 	peers, browsers := web.Split(ln)
+	// One history entry per uploaded folder (or run of files), not one per file.
+	var uploads history.Batches
+	defer uploads.Flush()
 	go serveHTTP(ctx, browsers, web.NewServer(web.Options{
 		Name: cfg.DeviceName, CheckCode: r.CheckCode, Binaries: web.FindBinaries,
 		UploadDir: func() string { return dest },
-		OnUpload: func(name string, size int64, from string) {
-			fmt.Printf("\n✓ %s sent %s (%s)\n", from, name, units.Bytes(size))
-			_ = history.Append(history.Record{Time: time.Now(), Dir: "received", Peer: from, Name: name, Files: 1, Bytes: size, State: "done"})
+		OnUpload: func(rel string, size int64, from string) {
+			fmt.Printf("\n✓ %s sent %s (%s)\n", from, rel, units.Bytes(size))
+			uploads.Add(rel, size, from, time.Now())
 		},
 	}))
 	info := selfInfo(cfg, *port, discovery.RoleReceive, "")

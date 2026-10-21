@@ -131,7 +131,7 @@ func TestUploadChunksOutOfOrder(t *testing.T) {
 	if err != nil || !bytes.Equal(got, data) {
 		t.Fatalf("uploaded file wrong: %v", err)
 	}
-	if len(f.got) != 1 || f.got[0] != "clip.mov" {
+	if len(f.got) != 1 || f.got[0] != "trip/clip.mov" {
 		t.Fatalf("OnUpload calls: %v", f.got)
 	}
 

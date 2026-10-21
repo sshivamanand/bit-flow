@@ -97,3 +97,15 @@ func (r Record) Rate() float64 {
 	}
 	return float64(r.Bytes) / r.Seconds
 }
+
+// Clear deletes the whole log.
+func Clear() error {
+	p, err := path()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}

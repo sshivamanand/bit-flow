@@ -7,7 +7,7 @@ bitflow recv                receive files
 bitflow send                send files, folders, or a Steam game
 bitflow peers               list bit-flow devices on the network
 bitflow games               list installed Steam games
-bitflow history             past transfers
+bitflow history             past transfers (--clear deletes them)
 bitflow config              show or change settings
 bitflow bench               measure a link or the engine
 bitflow ifaces              this computer's network links
@@ -106,10 +106,17 @@ List installed Steam games in every Steam library on this computer. See [Steam g
 ```bash
 bitflow history          # last 20
 bitflow history -n 100
+bitflow history --clear  # delete the history (received files stay)
 ```
 
 Every transfer from the command line, the app, and phone uploads, newest first, with size, average speed,
-and outcome.
+and outcome. Phone and browser uploads are one entry per folder, or per run of loose files from the same
+device, not one per file.
+
+| Flag | |
+|---|---|
+| `-n` | how many transfers to show (default 20) |
+| `--clear` | delete the whole transfer history (with the app open, use its "clear history" instead) |
 
 ## `bitflow config`
 

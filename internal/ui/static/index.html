@@ -97,6 +97,18 @@ section { margin-bottom: 38px; }
 .xnote.tip { color: var(--sub); }
 .xnote.tip::before { content: "tip  "; color: var(--accent); }
 .xhead .link { color: var(--sub); font-size: 12.5px; white-space: nowrap; }
+/* finished rows are one compact line, so a long history doesn't bury everything */
+.xfer.compact { padding: 8px 12px; margin-bottom: 2px; }
+.xfer.compact .xhead { flex-wrap: wrap; row-gap: 2px; }
+.xfer.compact .meta { color: var(--sub); font-size: 12.5px; white-space: nowrap; }
+.xfer.compact .xacts { margin-left: 0; }
+.xfer.compact .xacts button { font-size: 12.5px; }
+.items { margin: 6px 0 2px 22px; font-size: 12.5px; max-height: 260px; overflow-y: auto; }
+.items div { display: flex; gap: 12px; padding: 2px 0; }
+.items div span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.items .sub, .items span + span { color: var(--sub); }
+.older { display: block; margin: 4px 0 0 4px; font-size: 13px; }
+h2 #clearBtn.sure { color: var(--error); }
 
 footer { color: var(--sub); font-size: 12px; text-align: center; padding: 18px 24px 26px; }
 footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; padding: 1px 6px; font: inherit; }
@@ -190,7 +202,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
     </section>
 
     <section>
-      <h2>transfers <button id="clearBtn">clear finished</button></h2>
+      <h2>transfers <button id="clearBtn" title="remove finished transfers and delete the history log">clear history</button></h2>
       <div id="xfers"></div>
     </section>
   </main>
@@ -382,37 +394,74 @@ function renderPeers(s) {
       <span class="acts"><button class="key" data-send="files" data-addr="${addr}" data-name="${esc(p.name)}">files</button><button class="key" data-send="folder" data-addr="${addr}" data-name="${esc(p.name)}">folder</button><button class="key" data-game="1" data-addr="${addr}" data-name="${esc(p.name)}">game</button></span></div>`;
   }).join("");
 }
+// Finished transfers: the newest few show, the rest fold behind "show older".
+const RECENT = 5;
+const openItems = new Set(); // rows whose file list is expanded (kept across re-renders)
+let showOlder = false;
+function ago(t) {
+  const s = (Date.now() - new Date(t)) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return new Date(t).toLocaleDateString(undefined, {month: "short", day: "numeric"});
+}
+function finishedRow(x) {
+  const label = {done: "done", failed: "failed", declined: "declined", cancelled: "stopped"}[x.state] ?? x.state;
+  const meta = [bytes(x.total), x.files + (x.files === 1 ? " file" : " files")];
+  if (x.state === "done" && x.rate > 0 && x.finished && new Date(x.finished) - new Date(x.started) >= 1000) meta.push(bytes(x.rate) + "/s");
+  if (x.finished) meta.push(ago(x.finished));
+  const items = x.items || [];
+  const expanded = openItems.has(x.id);
+  const list = expanded ? `<div class="items">${items.map((it) => `<div><span>${esc(it.name)}</span><span>${bytes(it.size)}</span></div>`).join("")}
+    ${x.more ? `<div class="sub">and ${x.more.toLocaleString()} more</div>` : ""}</div>` : "";
+  return `<div class="xfer compact ${esc(x.state)}">
+    <div class="xhead"><span class="arrow">${x.dir === "in" ? "↓" : "↑"}</span><span class="name">${esc(x.name)}</span>
+      <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span><span class="meta">${esc(meta.join(" · "))}</span>
+      <span class="state">${esc(label)}</span>
+      <span class="xacts">
+        ${items.length > 1 ? `<button data-items="${esc(x.id)}" aria-expanded="${expanded}">${expanded ? "hide files" : "files"}</button>` : ""}
+        ${x.state === "done" && x.dir === "in" && x.dest ? `<button data-reveal="${esc(x.dest)}">show</button>` : ""}
+        <button data-remove="${esc(x.id)}" title="remove from history" aria-label="remove from history">×</button></span></div>
+    ${list}
+    ${x.error && x.state !== "declined" ? `<div class="xnote err">${esc(x.error)}</div>` : ""}
+  </div>`;
+}
 function renderXfers(s) {
   const xs = s.transfers || [];
   if (!xs.length) { $("xfers").innerHTML = `<div class="empty">nothing yet. send something, or share your pairing code with whoever is sending.</div>`; return; }
-  $("xfers").innerHTML = xs.map((x) => {
-    const pct = x.total > 0 ? Math.min(100, x.done / x.total * 100) : (x.state === "done" ? 100 : 0);
-    const live = x.state === "running" || x.state === "waiting";
-    const left = x.rate > 0 ? (x.total - x.done) / x.rate : NaN;
-    const label = {waiting: "waiting for accept…", running: "", done: "done", failed: "failed", declined: "declined", cancelled: "stopped"}[x.state] ?? x.state;
-    let stats;
-    if (x.state === "running") {
-      const [rv, ru] = bytes(x.rate || 0, true);
-      stats = stat(Math.floor(pct) + "<small>%</small>", "progress") + stat(rv + "<small> " + ru + "/s</small>", "speed") +
-        stat(dur(left), "left") + stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved") +
-        (x.streams ? stat(x.streams, "streams") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "");
-    } else if (x.state === "done") {
-      stats = stat(bytes(x.total), x.files + (x.files === 1 ? " file" : " files")) + (x.rate > 0 ? stat(bytes(x.rate) + "/s", "average") : "") +
-        (x.already ? stat(bytes(x.already), "already there") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "") +
-        stat(dur((new Date(x.finished) - new Date(x.started)) / 1000), "time");
-    } else stats = stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
-    return `<div class="xfer ${esc(x.state)}">
-      <div class="xhead"><span class="arrow">${x.dir === "in" ? "↓" : "↑"}</span><span class="name">${esc(x.name)}</span>
-        <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span>${x.link ? `<span class="link">via ${esc(x.link.toLowerCase())}</span>` : ""}<span class="state">${esc(label)}</span></div>
-      <div class="bar ${x.state === "waiting" ? "waiting" : ""}"><div class="fill" style="width:${pct.toFixed(1)}%"></div></div>
-      <div class="stats">${stats}<span class="xacts">
-        ${live ? `<button data-cancel="${esc(x.id)}">stop</button>` : ""}
-        ${x.state === "done" && x.dir === "in" && x.dest ? `<button data-reveal="${esc(x.dest)}">show</button>` : ""}</span></div>
-      ${x.retrying ? `<div class="xnote err">${esc(x.retrying)}</div>` : ""}
-      ${live ? (x.tips || []).map((t) => `<div class="xnote tip">${esc(t)}</div>`).join("") : ""}
-      ${x.error && x.state !== "declined" ? `<div class="xnote err">${esc(x.error)}</div>` : ""}
-    </div>`;
-  }).join("");
+  const live = xs.filter((x) => x.state === "running" || x.state === "waiting");
+  const done = xs.filter((x) => !(x.state === "running" || x.state === "waiting"));
+  const shown = showOlder ? done : done.slice(0, RECENT);
+  $("xfers").innerHTML = live.map(liveRow).join("") + shown.map(finishedRow).join("") +
+    (done.length > RECENT ? `<button class="older" data-older="1">${showOlder ? "hide older" : `show ${done.length - RECENT} older`}</button>` : "");
+}
+function liveRow(x) {
+  const pct = x.total > 0 ? Math.min(100, x.done / x.total * 100) : (x.state === "done" ? 100 : 0);
+  const live = x.state === "running" || x.state === "waiting";
+  const left = x.rate > 0 ? (x.total - x.done) / x.rate : NaN;
+  const label = {waiting: "waiting for accept…", running: "", done: "done", failed: "failed", declined: "declined", cancelled: "stopped"}[x.state] ?? x.state;
+  let stats;
+  if (x.state === "running") {
+    const [rv, ru] = bytes(x.rate || 0, true);
+    stats = stat(Math.floor(pct) + "<small>%</small>", "progress") + stat(rv + "<small> " + ru + "/s</small>", "speed") +
+      stat(dur(left), "left") + stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved") +
+      (x.streams ? stat(x.streams, "streams") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "");
+  } else if (x.state === "done") {
+    stats = stat(bytes(x.total), x.files + (x.files === 1 ? " file" : " files")) + (x.rate > 0 ? stat(bytes(x.rate) + "/s", "average") : "") +
+      (x.already ? stat(bytes(x.already), "already there") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "") +
+      stat(dur((new Date(x.finished) - new Date(x.started)) / 1000), "time");
+  } else stats = stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
+  return `<div class="xfer ${esc(x.state)}">
+    <div class="xhead"><span class="arrow">${x.dir === "in" ? "↓" : "↑"}</span><span class="name">${esc(x.name)}</span>
+      <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span>${x.link ? `<span class="link">via ${esc(x.link.toLowerCase())}</span>` : ""}<span class="state">${esc(label)}</span></div>
+    <div class="bar ${x.state === "waiting" ? "waiting" : ""}"><div class="fill" style="width:${pct.toFixed(1)}%"></div></div>
+    <div class="stats">${stats}<span class="xacts">
+      ${live ? `<button data-cancel="${esc(x.id)}">stop</button>` : ""}
+      ${x.state === "done" && x.dir === "in" && x.dest ? `<button data-reveal="${esc(x.dest)}">show</button>` : ""}</span></div>
+    ${x.retrying ? `<div class="xnote err">${esc(x.retrying)}</div>` : ""}
+    ${live ? (x.tips || []).map((t) => `<div class="xnote tip">${esc(t)}</div>`).join("") : ""}
+    ${x.error && x.state !== "declined" ? `<div class="xnote err">${esc(x.error)}</div>` : ""}
+  </div>`;
 }
 
 // ---- modals ----
@@ -551,6 +600,9 @@ document.addEventListener("click", (e) => {
   else if (b.dataset.manual) { const a = $("addr").value.trim(); startSend(b.dataset.manual, a, a); }
   else if (b.dataset.cancel) api(`/api/transfers/${b.dataset.cancel}/cancel`, {}).catch((e) => toast(e.message));
   else if (b.dataset.reveal) api("/api/reveal", {path: b.dataset.reveal}).catch((e) => toast(e.message));
+  else if (b.dataset.items) { openItems.has(b.dataset.items) ? openItems.delete(b.dataset.items) : openItems.add(b.dataset.items); if (state) renderXfers(state); }
+  else if (b.dataset.remove) api(`/api/transfers/${b.dataset.remove}/remove`, {}).catch((e) => toast(e.message));
+  else if (b.dataset.older) { showOlder = !showOlder; if (state) renderXfers(state); }
   else if (b.dataset.themePick) { newTheme = b.dataset.themePick; applyTheme(newTheme); renderThemes(); }
   else if (b.id === "destLink") openSettings();
 });
@@ -576,7 +628,18 @@ document.addEventListener("keydown", (e) => {
 // ---- live state ----
 function scan() { api("/api/scan", {}).catch(() => {}); }
 $("rescan").onclick = scan;
-$("clearBtn").onclick = () => api("/api/transfers/clear", {}).catch((e) => toast(e.message));
+// Clearing deletes history for good, so it takes a second click.
+let clearArmed = 0;
+$("clearBtn").onclick = () => {
+  const b = $("clearBtn");
+  if (!clearArmed) {
+    b.textContent = "sure? click again"; b.classList.add("sure");
+    clearArmed = setTimeout(() => { clearArmed = 0; b.textContent = "clear history"; b.classList.remove("sure"); }, 3000);
+    return;
+  }
+  clearTimeout(clearArmed); clearArmed = 0; b.textContent = "clear history"; b.classList.remove("sure");
+  api("/api/transfers/clear", {}).then(() => toast("history cleared")).catch((e) => toast(e.message));
+};
 function connect() {
   const es = new EventSource("/api/events");
   es.onmessage = (e) => { $("offline").style.display = "none"; render(JSON.parse(e.data)); };

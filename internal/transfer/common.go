@@ -48,6 +48,8 @@ type Result struct {
 	Already int64 // already at the receiver (identical files, resumed partials)
 	Files   int
 	Elapsed time.Duration
+
+	started bool // the receiver accepted (used to decide whether to retry)
 }
 
 // permanentError marks failures that retrying the same offer cannot fix.

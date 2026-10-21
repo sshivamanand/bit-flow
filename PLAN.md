@@ -54,10 +54,22 @@ M2 results (Apple M4, 2026-10-21):
 - 20,000 small files: 443 → **561 MB/s** at 8 streams with packs (TLS on); 662 MB/s at 32 streams. File creation is now the limit.
 - 8 GB file + 20,000 small files, same SSD: 0.95 GB/s TLS, 1.09 GB/s raw.
 
-### M3 — Discovery + UI
-- Multicast / mDNS / subnet scan / QR; either side can listen.
-- Local web UI (Svelte, embedded): device list, send dialog, accept dialog with destination picker, live MB/s + ETA.
-- Native dialogs via zenity.
+### M3 — Discovery + UI ✅
+- Discovery (`internal/discovery`): JSON query by UDP multicast (224.0.0.177, every interface) + directed and
+  limited broadcast. Responders reply by unicast. Fallback: TCP probe of each local /24 (`KindProbe`).
+  Responders always listen on UDP 7700 and advertise their real TCP port. Device ID + name live in the config dir.
+- `bitflow peers`; `send --to NAME` resolves device names; `send` with no `--to` picks the only receiver found
+  (or asks), and if none is found it **waits to be fetched** (`recv --from NAME`). Either side can listen, so one
+  firewalled laptop is enough to make a transfer work.
+- Engine refactor: connection setup (`link`: dialing vs. hub) is separate from session logic (send vs. receive).
+  Receivers choose the destination per offer (`Decision.Dest`).
+- Desktop app: `bitflow` with no arguments starts an agent (receiver + discovery + sender) and opens a web
+  UI on `127.0.0.1:7710`. Vanilla HTML/JS embedded in the binary (no build step), Monkeytype-style
+  monospace design with themes (flow, ember, violet, paper). First run asks for the device name.
+- Sessions: the launch URL's one-time token is traded for an HttpOnly, SameSite=Strict cookie. Sessions
+  (hashed), theme, device name and transfer history persist across restarts. Host-header check
+  (no DNS rebinding) and a custom header on writes (no CSRF).
+- Native pickers without dependencies: `osascript` (macOS), PowerShell WinForms (Windows), zenity/kdialog (Linux).
 
 ### M4 — Turbo
 - Auto-tuner (stream count, compression, disk backpressure).

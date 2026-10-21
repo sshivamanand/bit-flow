@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -295,7 +294,7 @@ func TestConflictPolicies(t *testing.T) {
 func TestDeclined(t *testing.T) {
 	src := makeGame(t)
 	dst := t.TempDir()
-	addr, done := startReceiver(t, &Receiver{Dest: dst, Confirm: func(*proto.Offer, OfferInfo) bool { return false }}, true)
+	addr, done := startReceiver(t, &Receiver{Dest: dst, Confirm: func(*proto.Offer, OfferInfo) Decision { return Decision{} }}, true)
 	_, err := send(t, addr, testOpts(), src)
 	if err == nil || !strings.Contains(err.Error(), "declined") || !IsPermanent(err) {
 		t.Fatalf("want declined error, got %v", err)
@@ -407,7 +406,7 @@ func TestResumeAfterSenderVanishes(t *testing.T) {
 }
 
 // flakyProxy forwards TCP connections and cuts all of them once, after limit
-// bytes have flowed from the sender.
+// bytes have flowed through it.
 type flakyProxy struct {
 	ln      net.Listener
 	backend string
@@ -441,25 +440,28 @@ func (p *flakyProxy) serve() {
 		p.mu.Lock()
 		p.conns = append(p.conns, c, b)
 		p.mu.Unlock()
-		go func() { io.Copy(c, b); c.Close() }()
-		go func() {
-			buf := make([]byte, 64<<10)
-			for {
-				n, err := c.Read(buf)
-				if n > 0 {
-					if _, werr := b.Write(buf[:n]); werr != nil {
-						break
-					}
-					if p.sent.Add(int64(n)) > p.limit && p.tripped.CompareAndSwap(false, true) {
-						p.cut()
-					}
-				}
-				if err != nil {
-					break
-				}
+		go p.pump(c, b)
+		go p.pump(b, c)
+	}
+}
+
+// pump copies src to dst, counting bytes in either direction towards the cut.
+func (p *flakyProxy) pump(dst, src net.Conn) {
+	defer dst.Close()
+	buf := make([]byte, 64<<10)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			if _, werr := dst.Write(buf[:n]); werr != nil {
+				return
 			}
-			b.Close()
-		}()
+			if p.sent.Add(int64(n)) > p.limit && p.tripped.CompareAndSwap(false, true) {
+				p.cut()
+			}
+		}
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -515,5 +517,99 @@ func TestNoReceiverFailsFast(t *testing.T) {
 	}
 	if time.Since(start) > 2*time.Second {
 		t.Fatal("unreachable receiver should not be retried")
+	}
+}
+
+// startSender runs a sender in reverse mode: it waits for a receiver to fetch.
+func startSender(t *testing.T, o Options, paths ...string) (addr string, done <-chan error) {
+	t.Helper()
+	m, err := planner.Build(paths)
+	must(t, err)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	must(t, err)
+	ch := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	go func() {
+		_, err := NewSender(o).Serve(ctx, ln, m)
+		ch <- err
+	}()
+	return ln.Addr().String(), ch
+}
+
+func TestFetchFromWaitingSender(t *testing.T) {
+	src := makeGame(t)
+	dst := t.TempDir()
+	addr, done := startSender(t, testOpts(), src)
+
+	r := &Receiver{Dest: dst, StateDir: t.TempDir()}
+	res, err := r.Fetch(context.Background(), addr, testCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("sender: %v", err)
+	}
+	m, _ := planner.Build([]string{src})
+	if res.Bytes != m.Total {
+		t.Fatalf("fetched %d of %d bytes", res.Bytes, m.Total)
+	}
+	assertSameTree(t, src, filepath.Join(dst, "Game"))
+}
+
+func TestFetchWrongCode(t *testing.T) {
+	addr, _ := startSender(t, testOpts(), makeGame(t))
+	r := &Receiver{Dest: t.TempDir(), Retries: 3}
+	_, err := r.Fetch(context.Background(), addr, "999999")
+	if !errors.Is(err, secure.ErrWrongCode) {
+		t.Fatalf("want wrong-code error, got %v", err)
+	}
+}
+
+func TestFetchReconnects(t *testing.T) {
+	src := makeGame(t)
+	dst := t.TempDir()
+	addr, done := startSender(t, testOpts(), src)
+	proxy := newFlakyProxy(t, addr, 6<<20)
+
+	var retries atomic.Int32
+	r := &Receiver{Dest: dst, StateDir: t.TempDir(), Retries: 5,
+		OnRetry: func(int, error, time.Duration) { retries.Add(1) }}
+	if _, err := r.Fetch(context.Background(), proxy.ln.Addr().String(), testCode); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("sender: %v", err)
+	}
+	if retries.Load() == 0 {
+		t.Fatal("expected at least one reconnect")
+	}
+	assertSameTree(t, src, filepath.Join(dst, "Game"))
+}
+
+func TestReceiverChoosesDestination(t *testing.T) {
+	src := makeGame(t)
+	def, chosen := t.TempDir(), t.TempDir()
+	addr, done := startReceiver(t, &Receiver{Dest: def,
+		Confirm: func(*proto.Offer, OfferInfo) Decision { return Decision{Accept: true, Dest: chosen} }}, true)
+	if _, err := send(t, addr, testOpts(), src); err != nil {
+		t.Fatal(err)
+	}
+	must(t, <-done)
+	assertSameTree(t, src, filepath.Join(chosen, "Game"))
+	if entries, _ := os.ReadDir(def); len(entries) != 0 {
+		t.Fatalf("default destination should stay empty: %v", entries)
+	}
+}
+
+func TestProbe(t *testing.T) {
+	addr, _ := startReceiver(t, &Receiver{Dest: t.TempDir(), Probe: func() any { return map[string]string{"name": "desk"} }}, false)
+	c, err := net.Dial("tcp", addr)
+	must(t, err)
+	defer c.Close()
+	must(t, proto.WriteHello(c, proto.Hello{Kind: proto.KindProbe}))
+	typ, body, err := proto.ReadMsg(c)
+	if err != nil || typ != proto.MsgInfo || !strings.Contains(string(body), "desk") {
+		t.Fatalf("typ=%d body=%s err=%v", typ, body, err)
 	}
 }

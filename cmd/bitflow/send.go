@@ -6,18 +6,26 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/sshivamanand/bit-flow/internal/awake"
+	"github.com/sshivamanand/bit-flow/internal/config"
+	"github.com/sshivamanand/bit-flow/internal/discovery"
+	"github.com/sshivamanand/bit-flow/internal/netinfo"
 	"github.com/sshivamanand/bit-flow/internal/planner"
+	"github.com/sshivamanand/bit-flow/internal/proto"
+	"github.com/sshivamanand/bit-flow/internal/secure"
 	"github.com/sshivamanand/bit-flow/internal/transfer"
 	"github.com/sshivamanand/bit-flow/internal/units"
 )
 
 func cmdSend(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
-	to := fs.String("to", "", "receiver address, HOST or HOST:PORT (shown when the receiver starts)")
+	to := fs.String("to", "", "receiver: its device NAME or HOST[:PORT] (default: find one on the network)")
 	code := fs.String("code", "", "pairing code shown by the receiver (asked for if omitted)")
+	wait := fs.Bool("wait", false, "don't look for a receiver; wait for one to fetch (bitflow recv --from)")
+	port := fs.Int("port", proto.DefaultPort, "with --wait: TCP/UDP port to listen on")
 	retries := fs.Int("retries", transfer.DefaultRetries, "reconnect attempts after a dropped connection")
 	opts := transferFlags(fs)
 	paths, err := parseArgs(fs, args)
@@ -25,13 +33,12 @@ func cmdSend(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(paths) == 0 {
-		return errors.New("nothing to send: bitflow send PATH... --to HOST")
+		return errors.New("nothing to send: bitflow send PATH... [--to NAME|HOST]")
 	}
-	if *to == "" {
-		return errors.New("--to is required (the receiver prints its address when it starts)")
+	cfg, err := config.Load()
+	if err != nil {
+		return err
 	}
-	addr := withPort(*to)
-
 	m, err := planner.Build(paths)
 	if err != nil {
 		return err
@@ -40,9 +47,7 @@ func cmdSend(ctx context.Context, args []string) error {
 		fmt.Printf("  skipping %s (not a regular file)\n", s)
 	}
 	o := opts()
-	if o.Code, err = readCode(*code); err != nil {
-		return err
-	}
+	o.Name = cfg.DeviceName()
 	o.Retries = *retries
 	if o.Retries == 0 {
 		o.Retries = -1
@@ -51,20 +56,114 @@ func cmdSend(ctx context.Context, args []string) error {
 		fmt.Printf("\n⟳ %v\n  reconnecting in %s (attempt %d of %d)…\n", err, wait, attempt, *retries)
 	}
 
-	fmt.Printf("Sending %d files, %s → %s over %d streams\n", m.FileCount(), units.Bytes(m.Total), addr, o.Streams)
-	fmt.Println("Waiting for the receiver to accept…")
+	addr := ""
+	switch {
+	case *wait:
+	case *to != "":
+		if addr, err = resolve(ctx, *to, discovery.RoleReceive, cfg); err != nil {
+			return err
+		}
+	default:
+		fmt.Println("Looking for receivers…")
+		p, err := choosePeer(ctx, discovery.RoleReceive, cfg)
+		if err != nil {
+			return err
+		}
+		if p != nil {
+			fmt.Printf("Found %s (%s)\n", p.Name, p.Addrs[0])
+			addr = p.Addr()
+		} else {
+			fmt.Println("No receiver found, so this computer will wait for one to fetch the files.")
+		}
+	}
 
 	release := awake.Hold()
 	defer release()
-	s := transfer.NewSender(o)
-	stop := watchSender(s)
-	res, err := s.Send(ctx, addr, m)
-	stop()
+	var res transfer.Result
+	if addr == "" {
+		res, err = waitForReceiver(ctx, &o, m, *port, *code, cfg)
+	} else {
+		var s *transfer.Sender
+		if s, err = withCode(o, *code); err != nil {
+			return err
+		}
+		fmt.Printf("Sending %d files, %s → %s over %d streams\n", m.FileCount(), units.Bytes(m.Total), addr, o.Streams)
+		fmt.Println("Waiting for the receiver to accept…")
+		stop := watchSender(s)
+		res, err = s.Send(ctx, addr, m)
+		stop()
+	}
 	if err != nil {
 		return err
 	}
 	fmt.Printf("✓ Sent %d files: %s%s\n", res.Files, summary(res.Bytes, res.Elapsed), alreadyNote(res.Already))
 	return nil
+}
+
+func withCode(o transfer.Options, flagVal string) (*transfer.Sender, error) {
+	code, err := readCode(flagVal)
+	if err != nil {
+		return nil, err
+	}
+	o.Code = code
+	return transfer.NewSender(o), nil
+}
+
+// waitForReceiver serves the files until a receiver fetches them (reverse mode).
+func waitForReceiver(ctx context.Context, o *transfer.Options, m *planner.Manifest, port int, code string, cfg *config.Config) (transfer.Result, error) {
+	o.Code = secure.NormalizeCode(code)
+	if o.Code == "" {
+		o.Code = secure.NewCode()
+	}
+	o.OnCodeChange = func(c string) {
+		fmt.Printf("\n⚠ Several wrong pairing codes were tried. New pairing code: %s\n", secure.FormatCode(c))
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return transfer.Result{}, err
+	}
+	offer := fmt.Sprintf("%s (%s)", topName(m), units.Bytes(m.Total))
+	go discovery.Respond(ctx, proto.DefaultPort, selfInfo(cfg, port, discovery.RoleSend, offer))
+
+	name := cfg.DeviceName()
+	fmt.Printf("\nOffering %s: %d files, %s\n\n", topName(m), m.FileCount(), units.Bytes(m.Total))
+	fmt.Printf("  Pairing code:  %s\n", secure.FormatCode(o.Code))
+	fmt.Printf("  Device name:   %s\n\n", name)
+	fmt.Println("On the receiving computer, run:")
+	fmt.Printf("  bitflow recv --to <folder> --from %s --code %s\n", name, o.Code)
+	if ifs, _ := netinfo.List(); len(ifs) > 0 {
+		fmt.Println("or by address:")
+		for _, ifc := range ifs {
+			for _, ip := range ifc.Addrs {
+				fmt.Printf("  %-26s bitflow recv --to <folder> --from %s --code %s\n", ifc.Label+" ("+ifc.Name+")", withPortIf(ip.String(), port), o.Code)
+			}
+		}
+	}
+	fmt.Println("\nWaiting for a receiver… (Ctrl+C to stop)")
+	s := transfer.NewSender(*o)
+	stop := watchSender(s)
+	defer stop()
+	return s.Serve(ctx, ln, m)
+}
+
+func topName(m *planner.Manifest) string {
+	var top []string
+	for _, f := range m.Files {
+		if !strings.Contains(f.Path, "/") {
+			top = append(top, f.Path)
+		}
+	}
+	if len(top) == 1 {
+		return top[0]
+	}
+	return fmt.Sprintf("%d items", len(top))
+}
+
+func withPortIf(host string, port int) string {
+	if port == proto.DefaultPort {
+		return host
+	}
+	return net.JoinHostPort(host, fmt.Sprint(port))
 }
 
 func cmdBench(ctx context.Context, args []string) error {
@@ -99,8 +198,13 @@ func cmdBench(ctx context.Context, args []string) error {
 		go r.Serve(rctx, ln, false)
 		addr = ln.Addr().String()
 	} else {
-		addr = withPort(*to)
-		var err error
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		if addr, err = resolve(ctx, *to, discovery.RoleReceive, cfg); err != nil {
+			return err
+		}
 		if base.Code, err = readCode(*code); err != nil {
 			return err
 		}

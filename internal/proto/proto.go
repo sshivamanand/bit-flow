@@ -21,7 +21,7 @@ import (
 
 const (
 	Magic       = "BFLW"
-	Version     = 2
+	Version     = 3
 	DefaultPort = 7700
 )
 
@@ -30,7 +30,9 @@ type ConnKind uint8
 
 const (
 	KindControl ConnKind = 1
-	KindData    ConnKind = 2
+	KindData    ConnKind = 2 // TLS data stream
+	KindDataRaw ConnKind = 3 // raw data stream, authenticated by a token
+	KindProbe   ConnKind = 4 // discovery: answer with device info, then close
 )
 
 // SessionID ties a transfer's data streams to its control connection.
@@ -82,6 +84,7 @@ const (
 	MsgProgress
 	MsgComplete
 	MsgError
+	MsgInfo // discovery probe answer
 )
 
 // maxMsg bounds a control message; a manifest of ~1M files fits comfortably.

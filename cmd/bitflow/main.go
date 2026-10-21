@@ -16,32 +16,41 @@ var version = "0.1.0-dev"
 const usageText = `bit-flow — fast local file transfer
 
 Usage:
-  bitflow recv  [--to DIR] [--yes] [--once] [--on-conflict error|skip|rename|overwrite] [--allow-raw]
-  bitflow send  PATH... --to HOST[:PORT] [--code CODE] [--streams 8] [--raw]
-  bitflow bench (--loopback | --to HOST[:PORT] --code CODE) [--size 10GB] [--sweep] [--raw]
+  bitflow                                        open the app (web interface)
+  bitflow recv  [--to DIR] [--yes] [--on-conflict error|skip|rename|overwrite] [--allow-raw]
+  bitflow recv  --from NAME|HOST --to DIR        fetch from a sender that is waiting
+  bitflow send  PATH... [--to NAME|HOST] [--code CODE] [--streams 8] [--raw]
+  bitflow send  PATH... --wait                   wait for a receiver to fetch
+  bitflow peers                                  list bit-flow devices on this network
+  bitflow bench (--loopback | --to NAME|HOST --code CODE) [--size 10GB] [--sweep] [--raw]
   bitflow ifaces
   bitflow version
 
-The receiver prints a pairing code; the sender needs it to connect.
+Whoever waits shows a pairing code; the other side needs it to connect.
 Run "bitflow <command> -h" for a command's flags.
 `
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usageText)
-		os.Exit(2)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// No command (e.g. double-clicked): open the app.
+	cmd, args := "ui", []string{}
+	if len(os.Args) > 1 {
+		cmd, args = os.Args[1], os.Args[2:]
+	}
 	var err error
-	switch cmd, args := os.Args[1], os.Args[2:]; cmd {
+	switch cmd {
+	case "ui", "app":
+		err = cmdUI(ctx, args)
 	case "recv", "receive":
 		err = cmdRecv(ctx, args)
 	case "send":
 		err = cmdSend(ctx, args)
 	case "bench":
 		err = cmdBench(ctx, args)
+	case "peers", "scan":
+		err = cmdPeers(ctx, args)
 	case "ifaces", "interfaces":
 		err = cmdIfaces()
 	case "version", "--version":

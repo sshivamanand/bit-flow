@@ -16,6 +16,7 @@ import (
 	"github.com/sshivamanand/bit-flow/internal/awake"
 	"github.com/sshivamanand/bit-flow/internal/config"
 	"github.com/sshivamanand/bit-flow/internal/discovery"
+	"github.com/sshivamanand/bit-flow/internal/history"
 	"github.com/sshivamanand/bit-flow/internal/netinfo"
 	"github.com/sshivamanand/bit-flow/internal/proto"
 	"github.com/sshivamanand/bit-flow/internal/secure"
@@ -27,13 +28,13 @@ import (
 
 func cmdRecv(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("recv", flag.ContinueOnError)
-	to := fs.String("to", ".", "folder to save received files into")
+	to := fs.String("to", "", "folder to save received files into (default: `bitflow config dest`, else the current folder)")
 	from := fs.String("from", "", "fetch from a sender that is waiting (its NAME or HOST[:PORT])")
 	port := fs.Int("port", proto.DefaultPort, "TCP/UDP port to listen on")
 	yes := fs.Bool("yes", false, "accept transfers without asking")
 	once := fs.Bool("once", false, "exit after one transfer")
 	code := fs.String("code", "", "pairing code: a fixed one to use, or the sender's with --from")
-	conflict := fs.String("on-conflict", "error", "when a different file already exists: error, skip, rename or overwrite")
+	conflict := fs.String("on-conflict", "", "when a different file already exists: error, skip, rename, overwrite or update (default: `bitflow config on_conflict`, else error)")
 	overwrite := fs.Bool("overwrite", false, "shorthand for --on-conflict=overwrite")
 	allowRaw := fs.Bool("allow-raw", false, "let senders use unencrypted data streams (trusted cables only)")
 	noResume := fs.Bool("no-resume", false, "delete partial files of interrupted transfers instead of resuming")
@@ -47,6 +48,13 @@ func cmdRecv(ctx context.Context, args []string) error {
 	if len(pos) > 0 {
 		return fmt.Errorf("unexpected argument %q (use --to DIR for the destination)", pos[0])
 	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if *conflict == "" {
+		*conflict = cfg.Conflict
+	}
 	policy, err := store.ParsePolicy(*conflict)
 	if err != nil {
 		return err
@@ -54,9 +62,11 @@ func cmdRecv(ctx context.Context, args []string) error {
 	if *overwrite {
 		policy = store.PolicyOverwrite
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+	if *to == "" {
+		*to = "."
+		if cfg.Dest != "" {
+			*to = cfg.Dest
+		}
 	}
 
 	dest, err := filepath.Abs(*to)
@@ -106,6 +116,16 @@ func cmdRecv(ctx context.Context, args []string) error {
 			release = nil
 		}
 		mu.Unlock()
+		if !o.Bench {
+			name := topLevelName(o)
+			files := 0
+			for _, f := range o.Files {
+				if !f.Dir {
+					files++
+				}
+			}
+			logTransfer("received", o.From, name, files, res, err)
+		}
 		switch {
 		case transfer.IsDeclined(err):
 			fmt.Println("✗ Declined.")
@@ -147,6 +167,7 @@ func cmdRecv(ctx context.Context, args []string) error {
 		UploadDir: func() string { return dest },
 		OnUpload: func(name string, size int64, from string) {
 			fmt.Printf("\n✓ %s sent %s (%s)\n", from, name, units.Bytes(size))
+			_ = history.Append(history.Record{Time: time.Now(), Dir: "received", Peer: from, Name: name, Files: 1, Bytes: size, State: "done"})
 		},
 	}))
 	info := selfInfo(cfg, *port, discovery.RoleReceive, "")
@@ -174,6 +195,26 @@ func fetch(ctx context.Context, r *transfer.Receiver, from, code string, cfg *co
 	fmt.Printf("Fetching from %s…\n", addr)
 	_, err = r.Fetch(ctx, addr, code)
 	return err
+}
+
+// topLevelName summarizes an offer for the history log.
+func topLevelName(o *proto.Offer) string {
+	if o.Steam != nil {
+		return o.Steam.Name + " (steam)"
+	}
+	var top []string
+	for _, f := range o.Files {
+		if !strings.Contains(f.Path, "/") {
+			top = append(top, f.Path)
+		}
+	}
+	switch len(top) {
+	case 0:
+		return "(nothing)"
+	case 1:
+		return top[0]
+	}
+	return fmt.Sprintf("%s and %d more", top[0], len(top)-1)
 }
 
 func osName(goos string) string {

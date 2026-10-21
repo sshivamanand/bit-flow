@@ -56,6 +56,7 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
 | `internal/transfer` | The engine: `Sender` / `Receiver`, control session, N data streams, pipelines, retries, compression (`compress.go`), stream gate + tuner (`tuner.go`), multipath (`paths.go`). |
 | `internal/web` | Browser side of the transfer port: `Split` (peer vs HTTP by first bytes), `/get` + installer, phone upload/download pages, QR (terminal + SVG). |
 | `internal/steam` | Steam libraries and installed games (VDF parser); `BITFLOW_STEAM_ROOT` points it at a fake install in tests. |
+| `internal/history` | Append-only `history.jsonl` shared by CLI and app (`bitflow history`). |
 | `internal/advisor` | Plain-English advice from the route (double air hop, multipath, cable, client isolation). |
 | `internal/netinfo` | Interface listing with friendly labels (Wi-Fi, Ethernet, Thunderbolt Bridge). |
 | `internal/discovery` | Find peers: UDP multicast + broadcast query, unicast answers, TCP /24 probe fallback, name lookup. |
@@ -138,6 +139,14 @@ what has landed per milestone.
   largest-file-first with consecutive offsets so writes stay near-sequential. Don't randomize chunk order.
 - Windows Defender scans each new file; small-file throughput there is far lower than on macOS.
 - macOS may show a firewall prompt the first time `recv` listens; Windows shows "Allow access". Allow it on Private networks.
+
+## CI and releases
+
+- `.github/workflows/ci.yml`: push to `main` and PRs. Race tests on macOS + Linux, Windows tests (allowed to
+  fail until proven), gofmt, vet for every OS, `make cross`. The repo is private: macOS minutes bill 10×,
+  so don't add triggers casually.
+- `.github/workflows/release.yml` + `.goreleaser.yaml`: pushing a `vX.Y.Z` tag builds archives for all six
+  targets with `main.version` set. Only tag after `make test`, `make e2e` and CI are green.
 
 ## Git workflow
 

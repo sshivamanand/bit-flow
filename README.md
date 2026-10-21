@@ -1,16 +1,32 @@
 # bit-flow
 
-Fast laptop-to-laptop file transfer over your local network (Wi‑Fi or cable).
-One small binary, no accounts, no cloud. Design: [ARCHITECTURE.md](ARCHITECTURE.md) · roadmap: [PLAN.md](PLAN.md).
+Fast laptop-to-laptop file transfer over your local network (Wi‑Fi or cable): built for moving 100 GB
+games between friends' laptops. One small binary, no accounts, no cloud, no internet needed.
+Design: [ARCHITECTURE.md](ARCHITECTURE.md) · roadmap and measurements: [PLAN.md](PLAN.md).
+
+![bit-flow app](docs/app.jpg)
+
+**Why it's fast:** parallel encrypted streams (auto-tuned), zstd compression when the link is the
+bottleneck (about half the bytes for app and game data), every link at once (Wi‑Fi + cable), resume after
+drops, identical files skipped, and game updates that send only what changed.
+
+## Install
+
+Download a release archive for your OS from the repository's Releases page, or:
+
+```bash
+go install github.com/sshivamanand/bit-flow/cmd/bitflow@latest
+```
+
+A friend's laptop can get it straight from yours: see *Phones, and friends without bit-flow* below.
 
 ## Build
 
 ```bash
-go install github.com/sshivamanand/bit-flow/cmd/bitflow@latest
-# or from a checkout:
 make build      # → bin/bitflow
 make cross      # → dist/bitflow-{darwin,windows,linux}-{arm64,amd64}
-make test
+make test       # unit + integration tests (race detector)
+make e2e        # 23 end-to-end checks of the real binary (macOS)
 ```
 
 ## Use
@@ -49,7 +65,8 @@ bitflow send ~/Games/BigGame --wait                        # prints a code and w
 bitflow recv --to ~/Games --from shivam --code 482913      # on the other laptop
 ```
 
-`bitflow peers` lists bit-flow devices on the network.
+`bitflow peers` lists bit-flow devices on the network. `bitflow history` shows past transfers, and
+`bitflow config` shows or changes this device's name, default folder and conflict policy.
 
 ### Steam games
 

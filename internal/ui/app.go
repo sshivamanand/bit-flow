@@ -23,6 +23,7 @@ import (
 	"github.com/sshivamanand/bit-flow/internal/awake"
 	"github.com/sshivamanand/bit-flow/internal/config"
 	"github.com/sshivamanand/bit-flow/internal/discovery"
+	"github.com/sshivamanand/bit-flow/internal/history"
 	"github.com/sshivamanand/bit-flow/internal/netinfo"
 	"github.com/sshivamanand/bit-flow/internal/planner"
 	"github.com/sshivamanand/bit-flow/internal/proto"
@@ -340,9 +341,20 @@ func (a *App) onDone(o *proto.Offer, res transfer.Result, err error) {
 	a.saveHistoryLocked()
 }
 
+// logHistory appends a finished transfer to the shared history log.
+func logHistory(x *xfer, res transfer.Result) {
+	dir := "sent"
+	if x.Dir == "in" {
+		dir = "received"
+	}
+	_ = history.Append(history.Record{Time: time.Now(), Dir: dir, Peer: x.Peer, Name: x.Name, Files: x.Files,
+		Bytes: res.Bytes, Already: res.Already, Seconds: x.Finished.Sub(x.Started).Seconds(), State: x.State, Error: x.Error})
+}
+
 // onBrowserUpload records a file a phone or browser sent.
 func (a *App) onBrowserUpload(name string, size int64, from string) {
 	now := time.Now()
+	_ = history.Append(history.Record{Time: now, Dir: "received", Peer: from, Name: name, Files: 1, Bytes: size, State: "done"})
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.transfers = append([]*xfer{{
@@ -354,6 +366,7 @@ func (a *App) onBrowserUpload(name string, size int64, from string) {
 
 // finish records a transfer's outcome. Caller holds a.mu.
 func finish(x *xfer, res transfer.Result, err error) {
+	defer logHistory(x, res)
 	x.Finished = time.Now()
 	x.Rate = 0
 	x.cancel = nil

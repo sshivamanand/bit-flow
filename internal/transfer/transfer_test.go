@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -76,8 +77,12 @@ func makeGame(t *testing.T) string {
 		t.Fatal(err)
 	}
 	// Bundles use relative symlinks: one to a file, one to a directory.
-	must(t, os.Symlink("big.pak", filepath.Join(src, "current.pak")))
-	must(t, os.Symlink("data/deep", filepath.Join(src, "levels")))
+	// (Windows only allows them with Developer Mode or admin rights.)
+	if err := os.Symlink("big.pak", filepath.Join(src, "current.pak")); err == nil {
+		must(t, os.Symlink("data/deep", filepath.Join(src, "levels")))
+	} else if runtime.GOOS != "windows" {
+		t.Fatal(err)
+	}
 	return src
 }
 

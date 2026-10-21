@@ -94,8 +94,14 @@ func cmdSend(ctx context.Context, args []string) error {
 	release := awake.Hold()
 	defer release()
 	var res transfer.Result
+	peerName := found
+	if peerName == "" {
+		peerName = addr
+	}
 	if addr == "" {
+		peerName = "a receiver that fetched"
 		res, err = waitForReceiver(ctx, &o, m, *port, *code, cfg)
+		logTransfer("sent", peerName, topName(m), m.FileCount(), res, err)
 	} else {
 		var s *transfer.Sender
 		if s, err = withCode(o, *code); err != nil {
@@ -106,6 +112,9 @@ func cmdSend(ctx context.Context, args []string) error {
 		stop := watchSender(s)
 		res, err = s.Send(ctx, addr, m)
 		stop()
+		if s.Stats().Accepted {
+			logTransfer("sent", peerName, topName(m), m.FileCount(), res, err)
+		}
 		if err != nil && found != "" && !s.Stats().Accepted && strings.Contains(err.Error(), "connect to") {
 			return fmt.Errorf("%w\n\n%s", err, advisor.Unreachable(found))
 		}

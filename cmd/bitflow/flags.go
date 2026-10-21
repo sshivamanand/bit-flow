@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net"
 	"strconv"
 
@@ -12,7 +13,21 @@ import (
 // sizeFlag accepts human sizes like 4MiB or 10GB.
 type sizeFlag int64
 
-func (s *sizeFlag) String() string { return units.Bytes(int64(*s)) }
+// String shows binary sizes exactly (4MiB, not "4.2 MB").
+func (s *sizeFlag) String() string {
+	n := int64(*s)
+	switch {
+	case n == 0:
+		return "0"
+	case n%(1<<30) == 0:
+		return fmt.Sprintf("%dGiB", n>>30)
+	case n%(1<<20) == 0:
+		return fmt.Sprintf("%dMiB", n>>20)
+	case n%(1<<10) == 0:
+		return fmt.Sprintf("%dKiB", n>>10)
+	}
+	return units.Bytes(n)
+}
 
 func (s *sizeFlag) Set(v string) error {
 	n, err := units.ParseSize(v)

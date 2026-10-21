@@ -17,21 +17,23 @@ const usageText = `bit-flow — fast local file transfer
 
 Usage:
   bitflow                                        open the app (web interface)
-  bitflow recv  [--to DIR] [--yes] [--on-conflict error|skip|rename|overwrite] [--allow-raw]
-  bitflow recv  --from NAME|HOST --to DIR        fetch from a sender that is waiting
-  bitflow send  PATH... [--to NAME|HOST] [--code CODE] [--streams 8] [--raw]
+  bitflow ui [--no-browser]                      same, without opening a browser
+  bitflow recv  [--to DIR] [--yes] [--on-conflict POLICY] [--allow-raw]
+  bitflow recv  --from NAME|HOST [--to DIR]      fetch from a sender that is waiting
+  bitflow send  PATH... [--to NAME|HOST] [--code CODE] [--streams N] [--raw]
   bitflow send  PATH... --wait                   wait for a receiver to fetch
-  bitflow send  --steam GAME [--to NAME|HOST]     send an installed Steam game into their library
+  bitflow send  --steam GAME [--to NAME|HOST]    send an installed Steam game into their library
   bitflow games                                  list installed Steam games
   bitflow peers                                  list bit-flow devices on this network
-  bitflow history                                past transfers (CLI and app)
+  bitflow history [-n 20]                        past transfers (CLI and app)
   bitflow config [name|dest|on_conflict VALUE]   show or change settings
   bitflow bench (--loopback | --to NAME|HOST --code CODE) [--size 10GB] [--sweep] [--raw]
-  bitflow ifaces
+  bitflow ifaces                                 this computer's network links
   bitflow version
 
+POLICY is error (default), skip, rename, overwrite or update.
 Whoever waits shows a pairing code; the other side needs it to connect.
-Run "bitflow <command> -h" for a command's flags.
+Run "bitflow <command> -h" for a command's flags. Docs: docs/README.md
 `
 
 func main() {

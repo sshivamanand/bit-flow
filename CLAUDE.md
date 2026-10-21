@@ -12,6 +12,13 @@ update them (and `docs/architecture.svg` → re-render `docs/architecture.png`, 
 
 Repo: `github.com/sshivamanand/bit-flow` (Go module path is the same). Author: Shivam Anand.
 
+## Docs
+
+User-facing docs live in `docs/` (index: `docs/README.md`; screenshots in `docs/img/`). When behavior,
+flags or defaults change, update the matching guide (`cli.md` for flags, `app.md` for the UI, `protocol.md`
+for wire changes, `security.md` for anything touching trust) in the same change. Get flag text from
+`bitflow <cmd> -h` rather than from memory, and re-run the relative-link check in the docs commit.
+
 ## Commands
 
 ```bash

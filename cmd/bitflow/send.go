@@ -107,7 +107,11 @@ func cmdSend(ctx context.Context, args []string) error {
 		if s, err = withCode(o, *code); err != nil {
 			return err
 		}
-		fmt.Printf("Sending %d files, %s → %s over %d streams\n", m.FileCount(), units.Bytes(m.Total), addr, o.Streams)
+		streams := "auto-tuned streams"
+		if o.Streams > 0 {
+			streams = fmt.Sprintf("%d streams", o.Streams)
+		}
+		fmt.Printf("Sending %d files, %s → %s over %s\n", m.FileCount(), units.Bytes(m.Total), addr, streams)
 		fmt.Println("Waiting for the receiver to accept…")
 		stop := watchSender(s)
 		res, err = s.Send(ctx, addr, m)
@@ -222,7 +226,7 @@ func withPortIf(host string, port int) string {
 
 func cmdBench(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
-	to := fs.String("to", "", "benchmark against a running `bitflow recv` at HOST[:PORT]")
+	to := fs.String("to", "", "benchmark against a running bitflow recv: its NAME or HOST[:PORT]")
 	loopback := fs.Bool("loopback", false, "benchmark against an in-process receiver on 127.0.0.1")
 	code := fs.String("code", "", "pairing code shown by the receiver (with --to)")
 	size := sizeFlag(10e9)

@@ -48,7 +48,9 @@ nav.top { display: flex; align-items: center; gap: 22px; margin-bottom: 38px; }
 .code { text-align: right; }
 .code .label { font-size: 11px; color: var(--sub); }
 .code .digits { font-size: 28px; font-weight: 500; color: var(--accent); letter-spacing: .12em; line-height: 1.1; }
-nav .icons { display: flex; gap: 4px; }
+nav .icons { display: flex; gap: 4px; align-items: center; }
+.navlink { color: var(--sub); text-decoration: none; padding: 4px 6px; border-radius: 6px; }
+.navlink:hover { color: var(--text); }
 
 .line { color: var(--sub); font-size: 13px; margin-bottom: 30px; overflow-wrap: anywhere; }
 .line b { color: var(--text); font-weight: 400; }
@@ -100,6 +102,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
 /* modal panels */
 .scrim { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
 .scrim.open { display: flex; }
+#offerDlg { z-index: 15; } /* an incoming offer goes on top of whatever else is open */
 .panel { background: var(--bg2); border-radius: 12px; padding: 26px; width: min(520px, 100%); }
 .panel .title { color: var(--sub); font-size: 13px; }
 .panel .big { font-size: 24px; font-weight: 500; margin: 6px 0 2px; overflow-wrap: anywhere; }
@@ -158,6 +161,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
       <div class="digits" id="code">--- ---</div>
     </div>
     <div class="icons" id="icons" hidden>
+      <a href="/docs" class="navlink" title="quick reference">docs</a>
       <button id="phoneBtn" title="phones and computers without bit-flow (p)">phone</button>
       <button id="themeBtn" title="change theme (t)">theme</button>
       <button id="settingsBtn" title="settings (s)">settings</button>
@@ -210,7 +214,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
     <div id="ofNotes"></div>
     <label>save to</label>
     <div class="row"><div class="path" id="ofDest"></div><button class="key" id="ofChange">change</button></div>
-    <div class="actions"><button id="ofDecline">decline <span class="sub">esc</span></button><button class="go" id="ofAccept">accept ↵</button></div>
+    <div class="actions"><button id="ofDecline">decline</button><button class="go" id="ofAccept">accept</button></div>
   </div>
 </div>
 
@@ -249,6 +253,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
       <option value="error">refuse the transfer</option>
       <option value="rename">keep both — save as "name (1)"</option>
       <option value="skip">keep mine, skip theirs</option>
+      <option value="update">update: skip identical, replace changed</option>
       <option value="overwrite">replace mine</option>
     </select>
     <label>theme</label>
@@ -546,19 +551,22 @@ document.addEventListener("click", (e) => {
   else if (b.id === "destLink") openSettings();
 });
 
-// keyboard: enter/esc in dialogs, single keys on the main screen
+// keyboard: enter/esc in dialogs, single keys on the main screen. Incoming
+// offers are answered by clicking only, so a key meant for something else
+// (they can pop up at any moment) never accepts or declines one.
 document.addEventListener("keydown", (e) => {
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName);
-  if (isOpen("offerDlg")) { if (e.key === "Enter") answerOffer(true); if (e.key === "Escape") answerOffer(false); return; }
+  if (isOpen("gameDlg")) { if (e.key === "Escape") close("gameDlg"); return; }
   if (isOpen("sendDlg")) { if (e.key === "Enter") $("sdGo").click(); if (e.key === "Escape") close("sendDlg"); return; }
   if (isOpen("setDlg")) { if (e.key === "Escape") $("setCancel").click(); return; }
   if (isOpen("phoneDlg")) { if (e.key === "Escape" || e.key === "Enter") close("phoneDlg"); return; }
-  if (isOpen("gameDlg")) { if (e.key === "Escape") close("gameDlg"); return; }
+  if (isOpen("offerDlg")) return;
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $("main").hidden) return;
-  if (e.key === "r") scan();
-  else if (e.key === "t") cycleTheme();
-  else if (e.key === "s") openSettings();
-  else if (e.key === "p") openPhone();
+  const actions = {r: scan, t: cycleTheme, s: openSettings, p: openPhone};
+  if (actions[e.key]) {
+    e.preventDefault(); // or the key lands in a field the action just focused
+    actions[e.key]();
+  }
 });
 
 // ---- live state ----

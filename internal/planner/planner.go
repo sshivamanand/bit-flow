@@ -100,31 +100,86 @@ func (m *Manifest) FileCount() int {
 	return n
 }
 
-// Unit is one chunk of one file: the unit of scheduling (and, from M2, of resume).
+// SmallFile is the largest file sent inside a pack instead of as its own chunk.
+// Games ship tens of thousands of small files; packing them avoids a frame,
+// checksum and scheduling round per file.
+const SmallFile = 1 << 20
+
+// Unit is the unit of scheduling: one chunk of one file, or a pack of whole small files.
 type Unit struct {
 	File   uint32
 	Offset int64
-	Len    int64
+	Len    int64    // file bytes carried (for packs: sum of member sizes)
+	Pack   []uint32 // non-nil: whole small files sent together in one frame
 }
 
-// Units splits every non-empty file into chunks of at most chunk bytes, largest
-// files first so the transfer never ends waiting on one huge file.
-func (m *Manifest) Units(chunk int64) []Unit {
-	idx := make([]int, 0, len(m.Files))
-	n := 0
+// Units plans what to send. Files in skip are already complete at the receiver;
+// have lists ranges the receiver already holds (resume). Big files are split
+// into chunks of at most chunk bytes, largest files first so the transfer never
+// ends waiting on one huge file; small files are packed into frames of at most
+// block bytes and sent last, where their small size evens out the tail.
+func (m *Manifest) Units(chunk int64, block int, skip map[uint32]bool, have map[uint32][]proto.Range) []Unit {
+	var big, small []int
 	for i, f := range m.Files {
-		if !f.Dir && f.Size > 0 {
-			idx = append(idx, i)
-			n += int((f.Size + chunk - 1) / chunk)
+		id := uint32(i)
+		if f.Dir || f.Size == 0 || skip[id] {
+			continue
+		}
+		if f.Size <= SmallFile && f.Size+proto.PackEntryHeader <= int64(block) && len(have[id]) == 0 {
+			small = append(small, i)
+		} else {
+			big = append(big, i)
 		}
 	}
-	sort.SliceStable(idx, func(a, b int) bool { return m.Files[idx[a]].Size > m.Files[idx[b]].Size })
-	units := make([]Unit, 0, n)
-	for _, i := range idx {
-		size := m.Files[i].Size
-		for off := int64(0); off < size; off += chunk {
-			units = append(units, Unit{File: uint32(i), Offset: off, Len: min(chunk, size-off)})
+	sort.SliceStable(big, func(a, b int) bool { return m.Files[big[a]].Size > m.Files[big[b]].Size })
+
+	var units []Unit
+	for _, i := range big {
+		id := uint32(i)
+		for _, r := range Missing(m.Files[i].Size, have[id]) {
+			end := r.Off + r.Len
+			for off := r.Off; off < end; off += chunk {
+				units = append(units, Unit{File: id, Offset: off, Len: min(chunk, end-off)})
+			}
 		}
+	}
+
+	// Packs keep manifest (directory) order, which is friendly to both disks.
+	var cur Unit
+	payload := 0
+	for _, i := range small {
+		size := int(m.Files[i].Size)
+		if len(cur.Pack) > 0 && payload+proto.PackEntryHeader+size > block {
+			units = append(units, cur)
+			cur, payload = Unit{}, 0
+		}
+		cur.Pack = append(cur.Pack, uint32(i))
+		cur.Len += int64(size)
+		payload += proto.PackEntryHeader + size
+	}
+	if len(cur.Pack) > 0 {
+		units = append(units, cur)
 	}
 	return units
+}
+
+// Missing returns the parts of [0, size) not covered by have.
+func Missing(size int64, have []proto.Range) []proto.Range {
+	hs := append([]proto.Range(nil), have...)
+	sort.Slice(hs, func(a, b int) bool { return hs[a].Off < hs[b].Off })
+	var out []proto.Range
+	pos := int64(0)
+	for _, h := range hs {
+		if h.Off > pos {
+			out = append(out, proto.Range{Off: pos, Len: min(h.Off, size) - pos})
+		}
+		pos = max(pos, h.Off+h.Len)
+		if pos >= size {
+			break
+		}
+	}
+	if pos < size {
+		out = append(out, proto.Range{Off: pos, Len: size - pos})
+	}
+	return out
 }

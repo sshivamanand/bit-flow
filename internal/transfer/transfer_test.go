@@ -4,21 +4,36 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
+	"io"
 	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sshivamanand/bit-flow/internal/planner"
 	"github.com/sshivamanand/bit-flow/internal/proto"
+	"github.com/sshivamanand/bit-flow/internal/secure"
+	"github.com/sshivamanand/bit-flow/internal/store"
 )
 
-// startReceiver runs a once-mode receiver on a random loopback port.
-func startReceiver(t *testing.T, r *Receiver) (addr string, done <-chan error) {
+const testCode = "424242"
+
+// startReceiver runs a receiver on a random loopback port. With once set, done
+// yields the first transfer's error.
+func startReceiver(t *testing.T, r *Receiver, once bool) (addr string, done <-chan error) {
 	t.Helper()
+	if r.Code == "" {
+		r.Code = testCode
+	}
+	if r.StateDir == "" {
+		r.StateDir = t.TempDir()
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -26,8 +41,13 @@ func startReceiver(t *testing.T, r *Receiver) (addr string, done <-chan error) {
 	ch := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go func() { ch <- r.Serve(ctx, ln, true) }()
+	go func() { ch <- r.Serve(ctx, ln, once) }()
 	return ln.Addr().String(), ch
+}
+
+// small chunks and blocks so files split into many units across streams.
+func testOpts() Options {
+	return Options{Code: testCode, Streams: 4, ChunkSize: 1 << 20, BlockSize: 256 << 10, Retries: -1}
 }
 
 func writeRandom(t *testing.T, path string, size int, mode os.FileMode) {
@@ -49,8 +69,8 @@ func makeGame(t *testing.T) string {
 	writeRandom(t, filepath.Join(src, "data", "textures.bin"), 2<<20+1, 0o644)
 	writeRandom(t, filepath.Join(src, "data", "deep", "level.dat"), 300_001, 0o644)
 	writeRandom(t, filepath.Join(src, "run.sh"), 64, 0o755)
-	for i := range 50 {
-		writeRandom(t, filepath.Join(src, "small", strings.Repeat("f", 1+i%5)+string(rune('a'+i%26))+".txt"), i*37, 0o644)
+	for i := range 300 {
+		writeRandom(t, filepath.Join(src, "small", strings.Repeat("f", 1+i%5)+string(rune('a'+i%26))+string(rune('a'+i/26))+".txt"), i*37, 0o644)
 	}
 	writeRandom(t, filepath.Join(src, "empty.txt"), 0, 0o644)
 	if err := os.MkdirAll(filepath.Join(src, "saves", "empty-dir"), 0o755); err != nil {
@@ -59,36 +79,14 @@ func makeGame(t *testing.T) string {
 	return src
 }
 
-func TestSendTree(t *testing.T) {
-	src := makeGame(t)
-	dst := t.TempDir()
-	addr, done := startReceiver(t, &Receiver{Dest: dst})
-
-	m, err := planner.Build([]string{src})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	// Small chunks and blocks so files split into many units across streams.
-	s := NewSender(Options{Streams: 4, ChunkSize: 1 << 20, BlockSize: 256 << 10})
-	res, err := s.Send(ctx, addr, m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := <-done; err != nil {
-		t.Fatalf("receiver: %v", err)
-	}
-	if res.Bytes != m.Total || res.Files != m.FileCount() {
-		t.Fatalf("result %+v, manifest total %d files %d", res, m.Total, m.FileCount())
-	}
-
-	// Every file and directory must match, with no partial files left behind.
-	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+// assertSameTree checks every file and directory under src exists identically under dst.
+func assertSameTree(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(filepath.Dir(src), path)
+		rel, _ := filepath.Rel(src, path)
 		got := filepath.Join(dst, rel)
 		gi, err := os.Stat(got)
 		if err != nil {
@@ -118,39 +116,188 @@ func TestSendTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filepath.WalkDir(dst, func(path string, d fs.DirEntry, err error) error {
-		if strings.HasSuffix(path, ".bitflow-partial") {
+	assertNoPartials(t, dst)
+}
+
+func assertNoPartials(t *testing.T, dir string) {
+	t.Helper()
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if strings.HasSuffix(path, store.PartialSuffix) {
 			t.Errorf("leftover partial file %s", path)
 		}
 		return nil
 	})
 }
 
-func TestConflictRejected(t *testing.T) {
+func send(t *testing.T, addr string, o Options, paths ...string) (Result, error) {
+	t.Helper()
+	m, err := planner.Build(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return NewSender(o).Send(ctx, addr, m)
+}
+
+func TestSendTree(t *testing.T) {
+	for _, raw := range []bool{false, true} {
+		name := "tls"
+		if raw {
+			name = "raw"
+		}
+		t.Run(name, func(t *testing.T) {
+			src := makeGame(t)
+			dst := t.TempDir()
+			addr, done := startReceiver(t, &Receiver{Dest: dst, AllowRaw: raw}, true)
+			o := testOpts()
+			o.Raw = raw
+			res, err := send(t, addr, o, src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; err != nil {
+				t.Fatalf("receiver: %v", err)
+			}
+			m, _ := planner.Build([]string{src})
+			if res.Bytes != m.Total || res.Files != m.FileCount() || res.Already != 0 {
+				t.Fatalf("result %+v, manifest total %d files %d", res, m.Total, m.FileCount())
+			}
+			assertSameTree(t, src, filepath.Join(dst, "Game"))
+		})
+	}
+}
+
+func TestWrongCode(t *testing.T) {
 	src := makeGame(t)
 	dst := t.TempDir()
-	writeRandom(t, filepath.Join(dst, "Game", "run.sh"), 1, 0o644)
-	addr, done := startReceiver(t, &Receiver{Dest: dst})
+	addr, done := startReceiver(t, &Receiver{Dest: dst}, true)
 
-	m, _ := planner.Build([]string{src})
-	_, err := NewSender(Options{Streams: 2}).Send(context.Background(), addr, m)
-	if err == nil || !strings.Contains(err.Error(), "already exist") {
-		t.Fatalf("want conflict error, got %v", err)
+	o := testOpts()
+	o.Code = "111111"
+	o.Retries = 3 // a wrong code must not be retried
+	start := time.Now()
+	_, err := send(t, addr, o, src)
+	if !errors.Is(err, secure.ErrWrongCode) || !IsPermanent(err) {
+		t.Fatalf("want permanent wrong-code error, got %v", err)
 	}
-	<-done
-	if b, _ := os.ReadFile(filepath.Join(dst, "Game", "run.sh")); len(b) != 1 {
-		t.Fatal("existing file was modified")
+	if time.Since(start) > 5*time.Second {
+		t.Fatal("wrong code was retried")
 	}
+	// The receiver keeps waiting for the right sender.
+	if _, err := send(t, addr, testOpts(), src); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	assertSameTree(t, src, filepath.Join(dst, "Game"))
+}
+
+func TestCodeRotatesAfterFailures(t *testing.T) {
+	rotated := make(chan string, 1)
+	r := &Receiver{Dest: t.TempDir(), OnCodeChange: func(c string) { rotated <- c }}
+	addr, _ := startReceiver(t, r, false)
+	src := makeGame(t)
+	o := testOpts()
+	o.Code = "000000"
+	for range maxPairFailures {
+		if _, err := send(t, addr, o, src); !errors.Is(err, secure.ErrWrongCode) {
+			t.Fatalf("got %v", err)
+		}
+	}
+	select {
+	case c := <-rotated:
+		if c == testCode || r.CurrentCode() != c {
+			t.Fatalf("code did not rotate: %q", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("code was not rotated")
+	}
+}
+
+func TestIdenticalFilesSkipped(t *testing.T) {
+	src := makeGame(t)
+	dst := t.TempDir()
+	addr, _ := startReceiver(t, &Receiver{Dest: dst}, false)
+	if _, err := send(t, addr, testOpts(), src); err != nil {
+		t.Fatal(err)
+	}
+	res, err := send(t, addr, testOpts(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Bytes != 0 || res.Already == 0 {
+		t.Fatalf("second send should move nothing: %+v", res)
+	}
+	assertSameTree(t, src, filepath.Join(dst, "Game"))
+}
+
+func TestConflictPolicies(t *testing.T) {
+	src := makeGame(t)
+	setup := func(t *testing.T) string {
+		dst := t.TempDir()
+		writeRandom(t, filepath.Join(dst, "Game", "run.sh"), 1, 0o644) // differs from the source
+		return dst
+	}
+
+	t.Run("error", func(t *testing.T) {
+		dst := setup(t)
+		addr, done := startReceiver(t, &Receiver{Dest: dst}, true)
+		o := testOpts()
+		o.Retries = 3
+		_, err := send(t, addr, o, src)
+		if err == nil || !strings.Contains(err.Error(), "already exist") || !IsPermanent(err) {
+			t.Fatalf("want permanent conflict error, got %v", err)
+		}
+		<-done
+		if b, _ := os.ReadFile(filepath.Join(dst, "Game", "run.sh")); len(b) != 1 {
+			t.Fatal("existing file was modified")
+		}
+	})
+	t.Run("skip", func(t *testing.T) {
+		dst := setup(t)
+		addr, done := startReceiver(t, &Receiver{Dest: dst, Policy: store.PolicySkip}, true)
+		if _, err := send(t, addr, testOpts(), src); err != nil {
+			t.Fatal(err)
+		}
+		<-done
+		if b, _ := os.ReadFile(filepath.Join(dst, "Game", "run.sh")); len(b) != 1 {
+			t.Fatal("existing file was modified")
+		}
+		if _, err := os.Stat(filepath.Join(dst, "Game", "big.pak")); err != nil {
+			t.Fatal("other files should still arrive")
+		}
+	})
+	t.Run("rename", func(t *testing.T) {
+		dst := setup(t)
+		addr, done := startReceiver(t, &Receiver{Dest: dst, Policy: store.PolicyRename}, true)
+		if _, err := send(t, addr, testOpts(), src); err != nil {
+			t.Fatal(err)
+		}
+		<-done
+		assertSameTree(t, src, filepath.Join(dst, "Game (1)"))
+		if b, _ := os.ReadFile(filepath.Join(dst, "Game", "run.sh")); len(b) != 1 {
+			t.Fatal("existing file was modified")
+		}
+	})
+	t.Run("overwrite", func(t *testing.T) {
+		dst := setup(t)
+		addr, done := startReceiver(t, &Receiver{Dest: dst, Policy: store.PolicyOverwrite}, true)
+		if _, err := send(t, addr, testOpts(), src); err != nil {
+			t.Fatal(err)
+		}
+		<-done
+		assertSameTree(t, src, filepath.Join(dst, "Game"))
+	})
 }
 
 func TestDeclined(t *testing.T) {
 	src := makeGame(t)
 	dst := t.TempDir()
-	addr, done := startReceiver(t, &Receiver{Dest: dst, Confirm: func(*proto.Offer) bool { return false }})
-
-	m, _ := planner.Build([]string{src})
-	_, err := NewSender(Options{}).Send(context.Background(), addr, m)
-	if err == nil || !strings.Contains(err.Error(), "declined") {
+	addr, done := startReceiver(t, &Receiver{Dest: dst, Confirm: func(*proto.Offer, OfferInfo) bool { return false }}, true)
+	_, err := send(t, addr, testOpts(), src)
+	if err == nil || !strings.Contains(err.Error(), "declined") || !IsPermanent(err) {
 		t.Fatalf("want declined error, got %v", err)
 	}
 	<-done
@@ -160,72 +307,213 @@ func TestDeclined(t *testing.T) {
 }
 
 func TestBench(t *testing.T) {
-	addr, done := startReceiver(t, &Receiver{})
-	res, err := NewSender(Options{Streams: 3, ChunkSize: 3 << 20, BlockSize: 1 << 20}).Bench(context.Background(), addr, 50<<20+7)
+	for _, raw := range []bool{false, true} {
+		addr, done := startReceiver(t, &Receiver{AllowRaw: true}, true)
+		o := Options{Code: testCode, Streams: 3, ChunkSize: 3 << 20, BlockSize: 1 << 20, Raw: raw}
+		res, err := NewSender(o).Bench(context.Background(), addr, 50<<20+7)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Bytes != 50<<20+7 {
+			t.Fatalf("bench moved %d bytes", res.Bytes)
+		}
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// fakeSender pairs and offers like a real sender, then hands back one open data stream.
+func fakeSender(t *testing.T, addr string, offer proto.Offer) (ctrl, data net.Conn) {
+	t.Helper()
+	id, _ := secure.NewIdentity()
+	var sid proto.SessionID
+	_, _ = rand.Read(sid[:])
+	c, err := net.Dial("tcp", addr)
+	must(t, err)
+	must(t, proto.WriteHello(c, proto.Hello{Kind: proto.KindControl, Session: sid}))
+	paired, err := secure.PairDialer(c, testCode, sid, id)
+	must(t, err)
+	tc := id.Client(c, paired.PeerFP)
+	must(t, proto.WriteMsg(tc, proto.MsgOffer, offer))
+	if typ, _, err := proto.ReadMsg(tc); err != nil || typ != proto.MsgAccept {
+		t.Fatalf("typ=%d err=%v", typ, err)
+	}
+	d, err := net.Dial("tcp", addr)
+	must(t, err)
+	must(t, proto.WriteHello(d, proto.Hello{Kind: proto.KindData, Session: sid}))
+	td := id.Client(d, paired.PeerFP)
+	must(t, td.Handshake())
+	return tc, td
+}
+
+func TestResumeAfterSenderVanishes(t *testing.T) {
+	src := makeGame(t)
+	dst := t.TempDir()
+	state := t.TempDir()
+	m, _ := planner.Build([]string{src})
+
+	// Deliver the first 2 MiB of big.pak, then disappear.
+	addr, done := startReceiver(t, &Receiver{Dest: dst, StateDir: state}, true)
+	o := testOpts()
+	offer := proto.Offer{From: "flaky", Files: m.Files, Total: m.Total, Streams: 1, BlockSize: o.BlockSize}
+	ctrl, data := fakeSender(t, addr, offer)
+	var big uint32
+	for i, f := range m.Files {
+		if f.Path == "Game/big.pak" {
+			big = uint32(i)
+		}
+	}
+	content, _ := os.ReadFile(filepath.Join(src, "big.pak"))
+	for off := 0; off < 2<<20; off += o.BlockSize {
+		block := content[off : off+o.BlockSize]
+		frame := make([]byte, proto.FrameHeaderSize+len(block))
+		(&proto.FrameHeader{File: big, Offset: uint64(off), Len: uint32(len(block)), Sum: proto.Checksum(block)}).Put(frame)
+		copy(frame[proto.FrameHeaderSize:], block)
+		_, err := data.Write(frame)
+		must(t, err)
+	}
+	time.Sleep(200 * time.Millisecond) // let the blocks reach the partial file
+	data.Close()
+	ctrl.Close()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("receiver should report the interrupted transfer")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("receiver did not notice the sender leaving")
+	}
+	if _, err := os.Stat(filepath.Join(dst, "Game", "big.pak"+store.PartialSuffix)); err != nil {
+		t.Fatal("partial file should be kept for resume")
+	}
+
+	// A real sender now resumes: the first 2 MiB are not sent again.
+	addr, done = startReceiver(t, &Receiver{Dest: dst, StateDir: state}, true)
+	res, err := send(t, addr, testOpts(), src)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if res.Bytes != 50<<20+7 {
-		t.Fatalf("bench moved %d bytes", res.Bytes)
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	if res.Already != 2<<20 || res.Bytes != m.Total-2<<20 {
+		t.Fatalf("resume moved %d bytes with %d already there", res.Bytes, res.Already)
+	}
+	assertSameTree(t, src, filepath.Join(dst, "Game"))
+	if entries, _ := os.ReadDir(filepath.Join(state, "resume")); len(entries) != 0 {
+		t.Fatalf("journal should be removed after success: %v", entries)
+	}
 }
 
-func TestSenderDisappears(t *testing.T) {
-	// A sender that delivers one block and then vanishes must fail the transfer
-	// without leaving partial files behind.
-	dst := t.TempDir()
-	addr, done := startReceiver(t, &Receiver{Dest: dst})
+// flakyProxy forwards TCP connections and cuts all of them once, after limit
+// bytes have flowed from the sender.
+type flakyProxy struct {
+	ln      net.Listener
+	backend string
+	limit   int64
+	sent    atomic.Int64
+	tripped atomic.Bool
+	mu      sync.Mutex
+	conns   []net.Conn
+}
 
-	block := make([]byte, 64<<10)
-	offer := proto.Offer{From: "flaky", Total: 1 << 20, Streams: 1, BlockSize: len(block),
-		Files: []proto.FileEntry{{Path: "Game", Dir: true}, {Path: "Game/big.pak", Size: 1 << 20}}}
-
-	var sid proto.SessionID
-	sid[0] = 1
-	ctrl, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	must(t, proto.WriteHello(ctrl, proto.Hello{Kind: proto.KindControl, Session: sid}))
-	must(t, proto.WriteMsg(ctrl, proto.MsgOffer, offer))
-	if typ, _, err := proto.ReadMsg(ctrl); err != nil || typ != proto.MsgAccept {
-		t.Fatalf("typ=%d err=%v", typ, err)
-	}
-	data, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	must(t, proto.WriteHello(data, proto.Hello{Kind: proto.KindData, Session: sid}))
-	var hdr [proto.FrameHeaderSize]byte
-	(&proto.FrameHeader{File: 1, Len: uint32(len(block)), Sum: proto.Checksum(block)}).Put(hdr[:])
-	_, err = (&net.Buffers{hdr[:], block}).WriteTo(data)
+func newFlakyProxy(t *testing.T, backend string, limit int64) *flakyProxy {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	must(t, err)
-	time.Sleep(100 * time.Millisecond) // let the block land in the partial file
-	data.Close()
-	ctrl.Close()
+	p := &flakyProxy{ln: ln, backend: backend, limit: limit}
+	t.Cleanup(func() { ln.Close() })
+	go p.serve()
+	return p
+}
 
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("receiver should report the failed transfer")
+func (p *flakyProxy) serve() {
+	for {
+		c, err := p.ln.Accept()
+		if err != nil {
+			return
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("receiver did not notice the sender leaving")
+		b, err := net.Dial("tcp", p.backend)
+		if err != nil {
+			c.Close()
+			continue
+		}
+		p.mu.Lock()
+		p.conns = append(p.conns, c, b)
+		p.mu.Unlock()
+		go func() { io.Copy(c, b); c.Close() }()
+		go func() {
+			buf := make([]byte, 64<<10)
+			for {
+				n, err := c.Read(buf)
+				if n > 0 {
+					if _, werr := b.Write(buf[:n]); werr != nil {
+						break
+					}
+					if p.sent.Add(int64(n)) > p.limit && p.tripped.CompareAndSwap(false, true) {
+						p.cut()
+					}
+				}
+				if err != nil {
+					break
+				}
+			}
+			b.Close()
+		}()
 	}
-	filepath.WalkDir(dst, func(path string, d fs.DirEntry, err error) error {
-		if strings.HasSuffix(path, ".bitflow-partial") || strings.HasSuffix(path, "big.pak") {
-			t.Errorf("leftover file %s", path)
-		}
-		return nil
-	})
+}
+
+func (p *flakyProxy) cut() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, c := range p.conns {
+		c.Close()
+	}
+	p.conns = nil
+}
+
+func TestReconnectResumes(t *testing.T) {
+	src := makeGame(t)
+	dst := t.TempDir()
+	addr, _ := startReceiver(t, &Receiver{Dest: dst}, false)
+	proxy := newFlakyProxy(t, addr, 6<<20)
+
+	var retries atomic.Int32
+	o := testOpts()
+	o.Retries = 5
+	o.OnRetry = func(int, error, time.Duration) { retries.Add(1) }
+	res, err := send(t, proxy.ln.Addr().String(), o, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retries.Load() == 0 {
+		t.Fatal("expected at least one reconnect")
+	}
+	m, _ := planner.Build([]string{src})
+	if res.Bytes+res.Already != m.Total {
+		t.Fatalf("result %+v doesn't add up to %d", res, m.Total)
+	}
+	assertSameTree(t, src, filepath.Join(dst, "Game"))
 }
 
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNoReceiverFailsFast(t *testing.T) {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := ln.Addr().String()
+	ln.Close()
+	o := testOpts()
+	o.Retries = 5
+	start := time.Now()
+	if _, err := send(t, addr, o, makeGame(t)); err == nil {
+		t.Fatal("expected an error")
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("unreachable receiver should not be retried")
 	}
 }

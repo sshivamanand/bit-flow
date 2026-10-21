@@ -3,6 +3,8 @@ package store
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/sshivamanand/bit-flow/internal/proto"
 )
 
 func TestSafeJoin(t *testing.T) {
@@ -36,5 +38,38 @@ func TestWindowsNames(t *testing.T) {
 		if err := windowsNameOK(n); err != nil {
 			t.Errorf("windowsNameOK(%q) unexpected error: %v", n, err)
 		}
+	}
+}
+
+func TestRangeSet(t *testing.T) {
+	var rs rangeSet
+	rs.add(10, 10) // [10,20)
+	rs.add(30, 5)  // [30,35)
+	rs.add(20, 10) // bridges into [10,35)
+	rs.add(0, 5)   // [0,5)
+	rs.add(3, 4)   // overlaps → [0,7)
+	rs.add(50, 0)  // ignored
+	want := rangeSet{{Off: 0, Len: 7}, {Off: 10, Len: 25}}
+	if len(rs) != len(want) || rs[0] != want[0] || rs[1] != want[1] {
+		t.Fatalf("got %+v want %+v", rs, want)
+	}
+	if rs.total() != 32 {
+		t.Fatalf("total %d", rs.total())
+	}
+	rs.add(5, 5) // fills the gap exactly
+	if len(rs) != 1 || rs[0] != (proto.Range{Off: 0, Len: 35}) {
+		t.Fatalf("got %+v", rs)
+	}
+}
+
+func TestPolicyParse(t *testing.T) {
+	for _, s := range []string{"error", "skip", "rename", "overwrite"} {
+		p, err := ParsePolicy(s)
+		if err != nil || p.String() != s {
+			t.Fatalf("%s → %v %v", s, p, err)
+		}
+	}
+	if _, err := ParsePolicy("nope"); err == nil {
+		t.Fatal("expected error")
 	}
 }

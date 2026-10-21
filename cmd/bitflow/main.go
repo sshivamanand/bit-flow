@@ -16,12 +16,13 @@ var version = "0.1.0-dev"
 const usageText = `bit-flow — fast local file transfer
 
 Usage:
-  bitflow recv  [--to DIR] [--port 7700] [--yes] [--once] [--overwrite]
-  bitflow send  PATH... --to HOST[:PORT] [--streams 8] [--chunk 32MiB] [--block 4MiB]
-  bitflow bench (--loopback | --to HOST[:PORT]) [--size 10GB] [--streams 8] [--sweep]
+  bitflow recv  [--to DIR] [--yes] [--once] [--on-conflict error|skip|rename|overwrite] [--allow-raw]
+  bitflow send  PATH... --to HOST[:PORT] [--code CODE] [--streams 8] [--raw]
+  bitflow bench (--loopback | --to HOST[:PORT] --code CODE) [--size 10GB] [--sweep] [--raw]
   bitflow ifaces
   bitflow version
 
+The receiver prints a pairing code; the sender needs it to connect.
 Run "bitflow <command> -h" for a command's flags.
 `
 

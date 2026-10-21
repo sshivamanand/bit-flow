@@ -3,7 +3,6 @@ package transfer
 import (
 	"bufio"
 	"context"
-	"crypto/hmac"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/sshivamanand/bit-flow/internal/proto"
-	"github.com/sshivamanand/bit-flow/internal/secure"
 	"github.com/sshivamanand/bit-flow/internal/store"
 )
 
@@ -26,9 +24,13 @@ const (
 )
 
 var (
-	errBusy     = errors.New("receiver is busy with another transfer")
-	errDeclined = errors.New("declined")
+	errBusy      = errors.New("receiver is busy with another transfer")
+	errDeclined  = errors.New("declined")
+	errCancelled = errors.New("cancelled by the receiver")
 )
+
+// IsDeclined reports whether a transfer ended because the receiver said no.
+func IsDeclined(err error) bool { return errors.Is(err, errDeclined) }
 
 // OfferInfo is what the receiver learned while preparing an offer.
 type OfferInfo struct {
@@ -40,42 +42,46 @@ type OfferInfo struct {
 	Raw     bool // data streams will be unencrypted
 }
 
-// Receiver accepts transfers on a listener, one at a time.
+// Decision answers an offer. A non-empty Dest overrides the receiver's default folder.
+type Decision struct {
+	Accept bool
+	Dest   string
+}
+
+// Receiver accepts transfers, one at a time: either listening for senders
+// (Serve) or fetching from a sender that is waiting (Fetch).
 type Receiver struct {
 	Dest     string
 	Policy   store.Policy
 	StateDir string // resume journals; "" disables resume
-	Code     string // pairing code; Serve generates one if empty
+	Code     string // pairing code when listening; generated if empty
 	AllowRaw bool   // honor senders asking for unencrypted data streams
 	SockBuf  int
+	Retries  int // Fetch: reconnect attempts after a dropped connection; 0 = default, <0 = none
 
 	// Confirm is asked before accepting an offer; nil accepts everything.
-	Confirm func(o *proto.Offer, info OfferInfo) bool
+	Confirm func(o *proto.Offer, info OfferInfo) Decision
+	// Probe answers discovery probes on the listening port; nil ignores them.
+	Probe func() any
 	// Optional event hooks for UIs.
 	OnStart      func(o *proto.Offer, info OfferInfo)
 	OnDone       func(o *proto.Offer, r Result, err error)
 	OnCodeChange func(code string)
+	OnRetry      func(attempt int, err error, wait time.Duration)
 
-	mu       sync.Mutex
-	active   *session
-	code     string
-	failures int
-	pairMu   sync.Mutex
-	id       *secure.Identity
+	hubOnce sync.Once
+	hub     *hub
+	hubErr  error
+
+	mu     sync.Mutex
+	active *session
 }
 
 type session struct {
-	id     proto.SessionID
-	key    string // identifies the offer at this destination (resume journal key)
+	key    string // identifies the offer at its destination (resume journal key)
 	offer  *proto.Offer
-	data   chan net.Conn
 	cancel context.CancelCauseFunc
 	done   chan struct{}
-
-	// Set before the session is published; read by data connection handlers.
-	raw     bool
-	pairKey []byte
-	peerFP  [32]byte
 
 	running  atomic.Bool // accepted and streaming
 	already  int64
@@ -100,156 +106,109 @@ func (r *Receiver) Stats() RecvStats {
 	return RecvStats{Active: true, From: s.offer.From, Received: s.already + s.received.Load(), Total: s.offer.Total}
 }
 
-// CurrentCode is the pairing code senders must use right now.
-func (r *Receiver) CurrentCode() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.code == "" {
-		r.code = r.Code
-		if r.code == "" {
-			r.code = secure.NewCode()
+func (r *Receiver) ensureHub() (*hub, error) {
+	r.hubOnce.Do(func() {
+		r.hub, r.hubErr = newHub(r.Code, r.SockBuf)
+		if r.hubErr != nil {
+			return
 		}
-	}
-	return r.code
-}
-
-// Serve accepts connections until ctx is cancelled. With once set, it returns
-// after the first transfer finishes, with that transfer's error.
-func (r *Receiver) Serve(ctx context.Context, ln net.Listener, once bool) error {
-	defer ln.Close()
-	if r.id == nil {
-		id, err := secure.NewIdentity()
-		if err != nil {
-			return err
-		}
-		r.id = id
-	}
-	r.CurrentCode()
-	stop := context.AfterFunc(ctx, func() { ln.Close() })
-	defer stop()
-
-	first := make(chan error, 1)
-	acceptErr := make(chan error, 1)
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				acceptErr <- err
-				return
+		r.hub.onCodeChange = func(c string) {
+			if r.OnCodeChange != nil {
+				r.OnCodeChange(c)
 			}
-			go func() {
-				isSession, err := r.handle(ctx, c)
-				if isSession && once && !errors.Is(err, errBusy) {
-					select {
-					case first <- err:
-					default:
-					}
-				}
-			}()
 		}
-	}()
-
-	select {
-	case err := <-first:
-		return err
-	case err := <-acceptErr:
-		if ctx.Err() != nil {
+		r.hub.probe = func() any {
+			if r.Probe != nil {
+				return r.Probe()
+			}
 			return nil
 		}
-		return err
-	case <-ctx.Done():
-		return nil
-	}
+		r.hub.onControl = func(ctx context.Context, ctrl net.Conn, lk *hubLink) error {
+			_, err := r.runSession(ctx, ctrl, lk)
+			return err
+		}
+	})
+	return r.hub, r.hubErr
 }
 
-// handle routes a new connection. It reports whether the connection ran a transfer session.
-func (r *Receiver) handle(ctx context.Context, c net.Conn) (bool, error) {
-	_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
-	h, err := proto.ReadHello(c)
+// CurrentCode is the pairing code senders must use right now.
+func (r *Receiver) CurrentCode() string {
+	h, err := r.ensureHub()
 	if err != nil {
-		c.Close()
-		return false, nil
+		return ""
 	}
-	tune(c, r.SockBuf)
-
-	switch h.Kind {
-	case proto.KindControl:
-		paired, err := r.pair(c, h.Session)
-		if err != nil {
-			c.Close() // wrong codes don't end a --once receiver
-			return false, nil
-		}
-		tc := r.id.Server(c, paired.PeerFP)
-		if err := tc.HandshakeContext(ctx); err != nil {
-			c.Close()
-			return false, nil
-		}
-		_ = c.SetDeadline(time.Time{})
-		return true, r.runSession(ctx, tc, h.Session, paired)
-
-	case proto.KindData:
-		r.mu.Lock()
-		s := r.active
-		r.mu.Unlock()
-		if s == nil || s.id != h.Session {
-			c.Close()
-			return false, nil
-		}
-		var conn net.Conn = c
-		if s.raw {
-			var tok [32]byte
-			want := secure.StreamToken(s.pairKey, h.Session, h.Stream)
-			if _, err := io.ReadFull(c, tok[:]); err != nil || !hmac.Equal(tok[:], want[:]) {
-				c.Close()
-				return false, nil
-			}
-		} else {
-			tc := r.id.Server(c, s.peerFP)
-			if err := tc.HandshakeContext(ctx); err != nil {
-				c.Close()
-				return false, nil
-			}
-			conn = tc
-		}
-		_ = c.SetDeadline(time.Time{})
-		select {
-		case s.data <- conn:
-		default:
-			conn.Close() // more streams than offered
-		}
-	default:
-		c.Close()
-	}
-	return false, nil
+	return h.currentCode()
 }
 
-// pair authenticates a sender with the current code. Attempts are serialized
-// and failures are slow, which keeps online guessing impractical.
-func (r *Receiver) pair(c net.Conn, sid proto.SessionID) (secure.Paired, error) {
-	r.pairMu.Lock()
-	defer r.pairMu.Unlock()
-	p, err := secure.PairListener(c, r.CurrentCode(), sid, r.id)
-	if err == nil {
-		r.mu.Lock()
-		r.failures = 0
-		r.mu.Unlock()
-		return p, nil
+// Serve accepts senders until ctx is cancelled. With once set, it returns
+// after the first transfer finishes, with that transfer's error.
+func (r *Receiver) Serve(ctx context.Context, ln net.Listener, once bool) error {
+	h, err := r.ensureHub()
+	if err != nil {
+		return err
 	}
-	if errors.Is(err, secure.ErrWrongCode) {
-		r.mu.Lock()
-		r.failures++
-		rotated := ""
-		if r.failures >= maxPairFailures {
-			r.code, r.failures = secure.NewCode(), 0
-			rotated = r.code
-		}
-		r.mu.Unlock()
-		if rotated != "" && r.OnCodeChange != nil {
-			r.OnCodeChange(rotated)
-		}
-		time.Sleep(pairPenalty)
+	return h.serve(ctx, ln, once)
+}
+
+// Fetch connects to a sender waiting at addr (bitflow send without --to) and
+// receives its files. Dropped connections are retried and resume.
+func (r *Receiver) Fetch(ctx context.Context, addr, code string) (Result, error) {
+	h, err := r.ensureHub()
+	if err != nil {
+		return Result{}, err
 	}
-	return p, err
+	retries := r.Retries
+	switch {
+	case retries == 0:
+		retries = DefaultRetries
+	case retries < 0:
+		retries = 0
+	}
+	started := false
+	for attempt := 1; ; attempt++ {
+		ctrl, lk, err := dialControl(ctx, addr, code, h.id, r.SockBuf)
+		var res Result
+		if err == nil {
+			res, err = r.runSession(ctx, ctrl, lk)
+			ctrl.Close()
+			if err == nil {
+				return res, nil
+			}
+		}
+		if res.started {
+			started = true
+		}
+		if IsPermanent(err) || ctx.Err() != nil || attempt > retries || !started {
+			return Result{}, err
+		}
+		wait := backoff(attempt)
+		if r.OnRetry != nil {
+			r.OnRetry(attempt, err, wait)
+		}
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return Result{}, err
+		}
+	}
+}
+
+// SetDefaults changes the destination and conflict policy for future offers.
+func (r *Receiver) SetDefaults(dest string, policy store.Policy) {
+	r.mu.Lock()
+	r.Dest, r.Policy = dest, policy
+	r.mu.Unlock()
+}
+
+// CancelActive stops the transfer in progress, if any. Partial files are kept
+// (resume), but the sender is told not to retry.
+func (r *Receiver) CancelActive() {
+	r.mu.Lock()
+	s := r.active
+	r.mu.Unlock()
+	if s != nil {
+		s.cancel(errCancelled)
+	}
 }
 
 // claim makes s the active session. A reconnecting sender (same files, same
@@ -302,48 +261,54 @@ func validateOffer(o *proto.Offer) error {
 	return nil
 }
 
-func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, sid proto.SessionID, paired secure.Paired) (err error) {
+// runSession runs the receiver's side of one transfer on a secured control connection.
+func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, lk link) (res Result, err error) {
 	defer ctrl.Close()
 
 	_ = ctrl.SetReadDeadline(time.Now().Add(30 * time.Second))
 	typ, body, err := proto.ReadMsg(ctrl)
 	_ = ctrl.SetReadDeadline(time.Time{})
 	if err != nil {
-		return err
+		return res, err
+	}
+	if typ == proto.MsgError {
+		return res, remoteError(body)
 	}
 	if typ != proto.MsgOffer {
-		return fmt.Errorf("expected offer, got message %d", typ)
+		return res, fmt.Errorf("expected offer, got message %d", typ)
 	}
 	var offer proto.Offer
 	if err := proto.Decode(body, &offer); err != nil {
-		return err
+		return res, err
 	}
 	var ctrlMu sync.Mutex
 	sendErr := func(e error, fatal bool) error {
 		ctrlMu.Lock()
 		defer ctrlMu.Unlock()
 		_ = proto.WriteMsg(ctrl, proto.MsgError, proto.ErrorMsg{Message: e.Error(), Fatal: fatal})
+		if fatal {
+			return permanent(e)
+		}
 		return e
 	}
 	if err := validateOffer(&offer); err != nil {
-		return sendErr(err, true)
+		return res, sendErr(err, true)
 	}
 
+	r.mu.Lock()
+	defaultDest, policy := r.Dest, r.Policy
+	r.mu.Unlock()
 	ctx, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
-	s := &session{
-		id: sid, offer: &offer, data: make(chan net.Conn, offer.Streams),
-		cancel: cancel, done: make(chan struct{}),
-		raw: offer.Raw && r.AllowRaw, pairKey: paired.Key, peerFP: paired.PeerFP,
-	}
+	s := &session{offer: &offer, cancel: cancel, done: make(chan struct{})}
 	if !offer.Bench {
-		if dest, err := filepath.Abs(r.Dest); err == nil {
+		if dest, err := filepath.Abs(defaultDest); err == nil {
 			s.key = store.JournalKey(dest, offer.Files)
 		}
 	}
 	defer close(s.done)
 	if err := r.claim(s); err != nil {
-		return sendErr(err, false)
+		return res, sendErr(err, false)
 	}
 	defer func() {
 		r.mu.Lock()
@@ -351,19 +316,26 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, sid proto.S
 		r.mu.Unlock()
 	}()
 
-	info := OfferInfo{Raw: s.raw}
-	var plan *store.Plan
-	if !offer.Bench {
-		plan, err = store.Prepare(r.Dest, offer.Files, store.Options{Policy: r.Policy, StateDir: r.StateDir})
+	raw := offer.Raw && r.AllowRaw
+	prepare := func(dest string) (*store.Plan, OfferInfo, error) {
+		info := OfferInfo{Raw: raw}
+		if offer.Bench {
+			return nil, info, nil
+		}
+		plan, err := store.Prepare(dest, offer.Files, store.Options{Policy: policy, StateDir: r.StateDir})
 		if err != nil {
-			return sendErr(err, true)
+			return nil, info, err
 		}
 		info.Dest, info.Already, info.Skipped = plan.Root(), plan.Already(), len(plan.Skip())
 		info.Resumed, info.Renames = plan.Resumed(), plan.Renames()
+		return plan, info, nil
+	}
+	plan, info, err := prepare(defaultDest)
+	if err != nil {
+		return res, sendErr(err, true)
 	}
 
 	materialized := false
-	var res Result
 	defer func() {
 		if err != nil && materialized {
 			plan.Suspend()
@@ -373,25 +345,35 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, sid proto.S
 		}
 	}()
 
-	if r.Confirm != nil && !r.Confirm(&offer, info) {
-		_ = proto.WriteMsg(ctrl, proto.MsgAccept, proto.Accept{OK: false, Reason: "declined by the receiver"})
-		return errDeclined
+	if r.Confirm != nil {
+		d := r.Confirm(&offer, info)
+		if !d.Accept {
+			_ = proto.WriteMsg(ctrl, proto.MsgAccept, proto.Accept{OK: false, Reason: "declined by the receiver"})
+			return res, permanent(errDeclined)
+		}
+		if d.Dest != "" && !offer.Bench && d.Dest != info.Dest {
+			if plan, info, err = prepare(d.Dest); err != nil {
+				return res, sendErr(err, true)
+			}
+		}
 	}
 	if plan != nil {
 		materialized = true
 		if err := plan.Materialize(); err != nil {
-			return sendErr(err, true)
+			return res, sendErr(err, true)
 		}
 	}
-	accept := proto.Accept{OK: true, Raw: s.raw, Dest: info.Dest, Already: info.Already}
+	accept := proto.Accept{OK: true, Raw: raw, Dest: info.Dest, Already: info.Already}
 	if plan != nil {
 		accept.Skip, accept.Have = plan.Skip(), plan.Have()
 	}
 	s.already = info.Already
+	lk.expect(offer.Streams, raw)
 	if err := proto.WriteMsg(ctrl, proto.MsgAccept, accept); err != nil {
-		return err
+		return res, err
 	}
 	s.running.Store(true)
+	res.started = true
 	if r.OnStart != nil {
 		r.OnStart(&offer, info)
 	}
@@ -404,25 +386,13 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, sid proto.S
 		cancel(errors.New("sender disconnected"))
 	}()
 
-	// Collect the data streams.
-	conns := make([]net.Conn, 0, offer.Streams)
-	defer func() {
-		for _, c := range conns {
-			c.Close()
-		}
-	}()
-	timeout := time.NewTimer(handshakeTimeout)
-	defer timeout.Stop()
-	for len(conns) < offer.Streams {
-		select {
-		case c := <-s.data:
-			conns = append(conns, c)
-			defer closeOnDone(ctx, c)()
-		case <-timeout.C:
-			return sendErr(errors.New("timed out waiting for data streams"), false)
-		case <-ctx.Done():
-			return sendErr(context.Cause(ctx), false)
-		}
+	conns, err := lk.streams(ctx, offer.Streams, raw)
+	if err != nil {
+		return res, sendErr(err, false)
+	}
+	for _, c := range conns {
+		defer c.Close()
+		defer closeOnDone(ctx, c)()
 	}
 
 	// Report progress to the sender.
@@ -470,15 +440,16 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, sid proto.S
 	tickWG.Wait()
 
 	if ctx.Err() != nil {
-		return sendErr(context.Cause(ctx), false)
+		cause := context.Cause(ctx)
+		return res, sendErr(cause, errors.Is(cause, errCancelled))
 	}
 	if got, want := s.received.Load(), offer.Total-s.already; got != want {
-		return sendErr(fmt.Errorf("received %d of %d bytes", got, want), false)
+		return res, sendErr(fmt.Errorf("received %d of %d bytes", got, want), false)
 	}
 	files := 0
 	if plan != nil {
 		if err := plan.Finish(); err != nil {
-			return sendErr(err, false)
+			return res, sendErr(err, false)
 		}
 		for _, f := range offer.Files {
 			if !f.Dir {
@@ -486,13 +457,13 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, sid proto.S
 			}
 		}
 	}
-	res = Result{Bytes: s.received.Load(), Already: s.already, Files: files, Elapsed: time.Since(start)}
+	res = Result{Bytes: s.received.Load(), Already: s.already, Files: files, Elapsed: time.Since(start), started: true}
 	ctrlMu.Lock()
 	err = proto.WriteMsg(ctrl, proto.MsgComplete, proto.Complete{
 		Bytes: res.Bytes, Already: res.Already, Files: res.Files, ElapsedNS: int64(res.Elapsed),
 	})
 	ctrlMu.Unlock()
-	return err
+	return res, err
 }
 
 type inBlock struct {

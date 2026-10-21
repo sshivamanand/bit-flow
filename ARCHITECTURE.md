@@ -49,21 +49,25 @@ Takeaways baked into the design:
 | Topology | **Peer-to-peer, one binary on both laptops** | A browser can't do raw multi-socket TCP or `pwrite` into preallocated 100 GB files. A native peer can, and it can open real folder pickers on both sides. |
 | Language | **Go** | Goroutines map 1:1 to the worker/stream model. Pure-Go builds cross-compile to macOS/Windows/Linux from one machine (`CGO_ENABLED=0`). Stdlib TLS 1.3, very fast zstd and XXH3 libraries, and automatic `sendfile`. Go handles 10 GbE easily, far above Wi‑Fi. Rust would only matter beyond that. |
 | Transport | **N parallel TCP streams** (not QUIC/UDP) | On a LAN, TCP is kernel-optimized and offloaded to the network card. Userspace QUIC uses more CPU per byte. Several streams cover Wi‑Fi packet loss and fill the radio's frame batching. |
-| UI | **Local web UI on 127.0.0.1**, served by the binary | Pretty and cross-platform. The binary does the real work and opens native OS dialogs, so both sender and receiver pick real paths. |
+| UI | **Local web UI on 127.0.0.1**, served by the binary | Pretty and cross-platform. The binary does the real work and opens native OS dialogs, so both sender and receiver pick real paths. Vanilla HTML/JS embedded with `go:embed`: no Node toolchain. |
 | Fallback | Browser-only mode for phones / no-install | The slower lane. Native peer-to-peer is the fast lane. |
 
 ## 4. Components
 
 ### 4.1 Discovery — "works on any Wi‑Fi"
-Tried in order, all in parallel with short timeouts:
-1. **UDP multicast announce** (LocalSend style) on port 7700.
-2. **mDNS** service `_bitflow._tcp.local`.
-3. **Subnet scan**: parallel TCP connects to `:7700` across each interface's /24 (~1 s).
-4. **QR code / typed address**: always works if the two laptops can route to each other at all.
+A scan sends one small JSON query several ways at once, repeated 3× over ~1.5 s (Wi‑Fi drops UDP):
+1. **UDP multicast** to 224.0.0.177:7700, sent out each interface.
+2. **Directed broadcast** for each local subnet, plus 255.255.255.255.
+3. Responders (receivers, waiting senders, the app) **answer by unicast** with `{id, name, os, port, role}`.
+4. If nothing answers: **TCP probe** of every address in each local /24 (`KindProbe` hello, ~1 s, 128 at a time).
+5. Typed address or device name: always works if the two laptops can route to each other at all.
 
-Each peer advertises **all** its interface addresses (Wi‑Fi, Ethernet, Thunderbolt bridge, hotspot).
-**Either side can be the listener**: if the receiver's firewall blocks inbound connections, the sender
-listens and the receiver dials. Which side connects is independent of which side sends data.
+Responders always listen on UDP 7700 (SO_REUSEPORT, so several bit-flow processes can share it) and
+advertise their real TCP port. Device IDs are random and stored in the config dir. A scanner ignores itself.
+
+**Either side can listen.** Connection setup is separate from the session: normally the receiver listens,
+but `send --wait` makes the sender listen and the receiver fetch (`recv --from`). The dialer is always the
+PAKE "dialer" and TLS client. Data streams follow the same rule. So a firewall on one laptop never blocks a transfer.
 
 ### 4.2 Pairing & security
 - The receiver shows a **6-digit code**, and the sender passes it (`--code`) or is prompted for it.
@@ -162,6 +166,18 @@ Detects and tells the user, in one line, what to do:
 - Peers have IPs on the same subnet but can't reach each other (client isolation, e.g. hotel/campus Wi‑Fi)
   → *"This network blocks device-to-device traffic. Turn on a hotspot on one laptop, or connect a cable."*
 - A link-local address appears on a Thunderbolt/Ethernet interface → automatically adds that path.
+
+### 4.10b Desktop app and sessions
+`bitflow` (no arguments) runs an agent: a receiver on 7700 (or any free port), a discovery responder, and
+senders on demand. A web UI on `127.0.0.1:7710` drives it through a small JSON API and Server-Sent Events.
+- **Auth**: the printed launch URL carries a one-time token in the fragment. The page trades it for an
+  HttpOnly, SameSite=Strict session cookie and removes it from the address bar. Sessions are stored hashed in the
+  config dir with the user's name and theme, so the bookmark `http://127.0.0.1:7710` keeps working after restarts.
+- **Hardening**: the Host header must be the loopback address (no DNS rebinding), writes need an `X-Bitflow: 1`
+  header (no cross-site forms), and a CSP blocks third-party content.
+- **Look**: Monkeytype-style. Monospace throughout, one accent colour, big stat numbers with small labels,
+  keyboard shortcuts. Themes: flow (teal), ember (orange), violet, paper (light).
+- **History** of finished transfers persists across restarts.
 
 ### 4.11 Bootstrap — get it onto a friend's laptop in seconds
 Your peer serves its own binaries at `http://<your-ip>:7700/get` (macOS arm64/amd64, Windows, Linux),

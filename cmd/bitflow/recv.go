@@ -10,8 +10,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sshivamanand/bit-flow/internal/awake"
+	"github.com/sshivamanand/bit-flow/internal/config"
+	"github.com/sshivamanand/bit-flow/internal/discovery"
 	"github.com/sshivamanand/bit-flow/internal/netinfo"
 	"github.com/sshivamanand/bit-flow/internal/proto"
 	"github.com/sshivamanand/bit-flow/internal/secure"
@@ -23,14 +26,16 @@ import (
 func cmdRecv(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("recv", flag.ContinueOnError)
 	to := fs.String("to", ".", "folder to save received files into")
-	port := fs.Int("port", proto.DefaultPort, "TCP port to listen on")
+	from := fs.String("from", "", "fetch from a sender that is waiting (its NAME or HOST[:PORT])")
+	port := fs.Int("port", proto.DefaultPort, "TCP/UDP port to listen on")
 	yes := fs.Bool("yes", false, "accept transfers without asking")
 	once := fs.Bool("once", false, "exit after one transfer")
-	code := fs.String("code", "", "use this pairing code instead of a random one")
+	code := fs.String("code", "", "pairing code: a fixed one to use, or the sender's with --from")
 	conflict := fs.String("on-conflict", "error", "when a different file already exists: error, skip, rename or overwrite")
 	overwrite := fs.Bool("overwrite", false, "shorthand for --on-conflict=overwrite")
 	allowRaw := fs.Bool("allow-raw", false, "let senders use unencrypted data streams (trusted cables only)")
 	noResume := fs.Bool("no-resume", false, "delete partial files of interrupted transfers instead of resuming")
+	retries := fs.Int("retries", transfer.DefaultRetries, "with --from: reconnect attempts after a dropped connection")
 	var sockBuf sizeFlag
 	fs.Var(&sockBuf, "sockbuf", "socket buffer size (default: OS autotuning)")
 	pos, err := parseArgs(fs, args)
@@ -47,9 +52,9 @@ func cmdRecv(ctx context.Context, args []string) error {
 	if *overwrite {
 		policy = store.PolicyOverwrite
 	}
-	fixedCode := secure.NormalizeCode(*code)
-	if *code != "" && len(fixedCode) < 6 {
-		return fmt.Errorf("--code needs at least 6 digits")
+	cfg, err := config.Load()
+	if err != nil {
+		return err
 	}
 
 	dest, err := filepath.Abs(*to)
@@ -59,37 +64,27 @@ func cmdRecv(ctx context.Context, args []string) error {
 	if st, err := os.Stat(dest); err != nil || !st.IsDir() {
 		return fmt.Errorf("destination folder %s does not exist", dest)
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
-	if err != nil {
-		return err
-	}
 
 	r := &transfer.Receiver{
-		Dest: dest, Policy: policy, Code: fixedCode, AllowRaw: *allowRaw, SockBuf: int(sockBuf),
+		Dest: dest, Policy: policy, AllowRaw: *allowRaw, SockBuf: int(sockBuf), Retries: *retries,
 	}
 	if !*noResume {
 		r.StateDir = defaultStateDir()
 	}
-	printRecvBanner(dest, *port, r.CurrentCode())
-
-	r.OnCodeChange = func(c string) {
-		fmt.Printf("\n⚠ Several wrong pairing codes were tried. New pairing code: %s\n", secure.FormatCode(c))
-	}
-	r.Confirm = func(o *proto.Offer, info transfer.OfferInfo) bool {
+	r.Confirm = func(o *proto.Offer, info transfer.OfferInfo) transfer.Decision {
 		if o.Bench {
 			fmt.Printf("\n▶ Benchmark from %s: %s over %d streams (data is discarded)\n", o.From, units.Bytes(o.Total), o.Streams)
-			return true
+			return transfer.Decision{Accept: true}
 		}
 		describeOffer(o, info)
 		if *yes {
-			return true
+			return transfer.Decision{Accept: true}
 		}
 		fmt.Print("  Accept? [Y/n] ")
 		line, _ := stdin.ReadString('\n')
 		ans := strings.ToLower(strings.TrimSpace(line))
-		return ans == "" || ans == "y" || ans == "yes"
+		return transfer.Decision{Accept: ans == "" || ans == "y" || ans == "yes"}
 	}
-
 	var mu sync.Mutex
 	var stopMeter, release func()
 	r.OnStart = func(o *proto.Offer, _ transfer.OfferInfo) {
@@ -110,7 +105,7 @@ func cmdRecv(ctx context.Context, args []string) error {
 		}
 		mu.Unlock()
 		switch {
-		case err != nil && err.Error() == "declined":
+		case transfer.IsDeclined(err):
 			fmt.Println("✗ Declined.")
 		case err != nil:
 			fmt.Printf("✗ Transfer from %s stopped: %v\n", o.From, err)
@@ -122,11 +117,50 @@ func cmdRecv(ctx context.Context, args []string) error {
 		default:
 			fmt.Printf("✓ Received %d files: %s%s\n", res.Files, summary(res.Bytes, res.Elapsed), alreadyNote(res.Already))
 		}
-		if !*once {
+		if !*once && *from == "" {
 			fmt.Printf("\nWaiting for the next transfer… pairing code %s (Ctrl+C to stop)\n", secure.FormatCode(r.CurrentCode()))
 		}
 	}
+
+	if *from != "" {
+		return fetch(ctx, r, *from, *code, cfg)
+	}
+
+	if *code != "" {
+		r.Code = secure.NormalizeCode(*code)
+		if len(r.Code) < 6 {
+			return fmt.Errorf("--code needs at least 6 digits")
+		}
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
+	if err != nil {
+		return err
+	}
+	info := selfInfo(cfg, *port, discovery.RoleReceive, "")
+	r.Probe = func() any { return info() }
+	go discovery.Respond(ctx, proto.DefaultPort, info) // scanners always ask on the default port; info carries the real one
+	r.OnCodeChange = func(c string) {
+		fmt.Printf("\n⚠ Several wrong pairing codes were tried. New pairing code: %s\n", secure.FormatCode(c))
+	}
+	printRecvBanner(dest, *port, r.CurrentCode(), cfg.DeviceName())
 	return r.Serve(ctx, ln, *once)
+}
+
+// fetch receives from a sender that is waiting to be fetched.
+func fetch(ctx context.Context, r *transfer.Receiver, from, code string, cfg *config.Config) error {
+	addr, err := resolve(ctx, from, discovery.RoleSend, cfg)
+	if err != nil {
+		return err
+	}
+	if code, err = readCode(code); err != nil {
+		return err
+	}
+	r.OnRetry = func(attempt int, err error, wait time.Duration) {
+		fmt.Printf("\n⟳ %v\n  reconnecting in %s (attempt %d)…\n", err, wait, attempt)
+	}
+	fmt.Printf("Fetching from %s…\n", addr)
+	_, err = r.Fetch(ctx, addr, code)
+	return err
 }
 
 func alreadyNote(already int64) string {
@@ -136,22 +170,26 @@ func alreadyNote(already int64) string {
 	return fmt.Sprintf("  (%s was already here)", units.Bytes(already))
 }
 
-func printRecvBanner(dest string, port int, code string) {
+func printRecvBanner(dest string, port int, code, name string) {
 	fmt.Printf("bit-flow %s — receiving into %s\n\n", version, dest)
-	fmt.Printf("  Pairing code:  %s\n\n", secure.FormatCode(code))
-	ifs, _ := netinfo.List()
-	if len(ifs) == 0 {
-		fmt.Printf("Listening on port %d, but no network interfaces are up.\n", port)
-		return
-	}
+	fmt.Printf("  Pairing code:  %s\n", secure.FormatCode(code))
+	fmt.Printf("  Device name:   %s\n\n", name)
 	suffix := ""
 	if port != proto.DefaultPort {
 		suffix = fmt.Sprintf(":%d", port)
 	}
-	fmt.Println("On the sending computer, run one of these (pick the fastest link):")
-	for _, ifc := range ifs {
-		for _, ip := range ifc.Addrs {
-			fmt.Printf("  %-26s bitflow send <path> --to %s%s --code %s\n", ifc.Label+" ("+ifc.Name+")", ip, suffix, code)
+	fmt.Println("On the sending computer, run:")
+	if suffix == "" && !strings.ContainsAny(name, " .:") {
+		fmt.Printf("  bitflow send <path> --to %s --code %s\n", name, code)
+	} else {
+		fmt.Printf("  bitflow send <path> --code %s\n", code)
+	}
+	if ifs, _ := netinfo.List(); len(ifs) > 0 {
+		fmt.Println("or by address, if it can't find this device (pick the fastest link):")
+		for _, ifc := range ifs {
+			for _, ip := range ifc.Addrs {
+				fmt.Printf("  %-26s bitflow send <path> --to %s%s --code %s\n", ifc.Label+" ("+ifc.Name+")", ip, suffix, code)
+			}
 		}
 	}
 	fmt.Println("\nWaiting for a transfer… (Ctrl+C to stop)")

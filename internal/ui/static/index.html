@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en" data-theme="flow">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bit-flow</title>
+<style>
+/* Themes. Monospace everything, quiet chrome, one accent colour. */
+:root, [data-theme="flow"] {
+  --bg: #15171c; --bg2: #1d2027; --bg3: #262a33;
+  --text: #dfe3ea; --sub: #5b6271; --accent: #2ee6c5; --error: #ff6b7a;
+}
+[data-theme="ember"]  { --bg: #1c1715; --bg2: #26201c; --bg3: #322a24; --text: #ecdfcf; --sub: #7d6b5c; --accent: #ff9248; --error: #ff5f5f; }
+[data-theme="violet"] { --bg: #16141d; --bg2: #1f1c29; --bg3: #2a2637; --text: #e7e2f6; --sub: #6c6587; --accent: #b69bff; --error: #ff7aa8; }
+[data-theme="paper"]  { --bg: #f1eee8; --bg2: #e6e2da; --bg3: #dad5cb; --text: #2b2925; --sub: #9b958a; --accent: #0f8a7e; --error: #c43d3d; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  /* Prefer the cleanest monospace each OS has: SF Mono (Safari), JetBrains/Cascadia/Roboto if installed, then Menlo/Consolas. */
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "Roboto Mono", "IBM Plex Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: 14.5px; font-weight: 400; line-height: 1.55; letter-spacing: -.005em;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
+  transition: background .2s, color .2s;
+  min-height: 100vh; display: flex; flex-direction: column;
+}
+::selection { background: var(--accent); color: var(--bg); }
+button { font: inherit; color: var(--sub); background: none; border: 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; transition: color .15s, background .15s; }
+button:hover { color: var(--text); }
+button.key { background: var(--bg2); color: var(--text); padding: 6px 13px; }
+button.key:hover { background: var(--text); color: var(--bg); }
+button.go { background: var(--accent); color: var(--bg); padding: 6px 15px; font-weight: 500; }
+button.go:hover { filter: brightness(1.1); background: var(--accent); color: var(--bg); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, select { font: inherit; color: var(--text); background: var(--bg2); border: 0; border-radius: 8px; padding: 8px 12px; min-width: 0; }
+input::placeholder { color: var(--sub); }
+.sub { color: var(--sub); }
+.acc { color: var(--accent); }
+.err { color: var(--error); }
+
+.wrap { width: 100%; max-width: 1000px; margin: 0 auto; padding: 26px 24px; flex: 1; }
+nav.top { display: flex; align-items: center; gap: 22px; margin-bottom: 38px; }
+.logo { display: flex; align-items: baseline; gap: 10px; font-size: 24px; font-weight: 500; letter-spacing: -.03em; }
+.logo .mark { color: var(--accent); }
+.logo .tag { font-size: 11px; color: var(--sub); font-weight: 400; letter-spacing: 0; }
+.spacer { flex: 1; }
+.code { text-align: right; }
+.code .label { font-size: 11px; color: var(--sub); }
+.code .digits { font-size: 28px; font-weight: 500; color: var(--accent); letter-spacing: .12em; line-height: 1.1; }
+nav .icons { display: flex; gap: 4px; }
+
+.line { color: var(--sub); font-size: 13px; margin-bottom: 30px; overflow-wrap: anywhere; }
+.line b { color: var(--text); font-weight: 400; }
+.line button { display: inline; text-align: left; color: var(--text); text-decoration: underline; text-decoration-color: var(--sub); text-underline-offset: 3px; padding: 0; overflow-wrap: anywhere; }
+
+h2 { font-size: 13px; font-weight: 400; color: var(--sub); margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
+h2::after { content: ""; flex: 1; height: 1px; background: var(--bg3); }
+h2 button { order: 2; font-size: 12.5px; }
+section { margin-bottom: 38px; }
+
+.peer { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 8px; }
+.peer:hover { background: var(--bg2); }
+.peer .n { font-weight: 500; }
+.peer .a { color: var(--sub); font-size: 13px; flex: 1; }
+.peer .acts { display: flex; gap: 6px; }
+.manual { display: flex; gap: 8px; align-items: center; margin-top: 10px; padding: 0 12px; }
+.manual input { flex: 1; max-width: 260px; }
+.empty { color: var(--sub); padding: 10px 12px; font-size: 13.5px; }
+.empty code { color: var(--text); }
+
+.xfer { padding: 14px 12px 12px; border-radius: 10px; margin-bottom: 6px; }
+.xfer:hover { background: var(--bg2); }
+.xhead { display: flex; align-items: baseline; gap: 10px; }
+.xhead .arrow { color: var(--accent); }
+.xhead .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xhead .peer-name { color: var(--sub); white-space: nowrap; }
+.xhead .state { color: var(--sub); font-size: 13px; margin-left: auto; white-space: nowrap; }
+.xfer.done .state { color: var(--accent); }
+.xfer.failed .state, .xfer.cancelled .state, .xfer.declined .state { color: var(--error); }
+.bar { height: 3px; background: var(--bg3); border-radius: 3px; margin: 10px 0 12px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .45s ease; }
+.xfer.failed .fill, .xfer.cancelled .fill, .xfer.declined .fill { background: var(--error); }
+.bar.waiting .fill { width: 25% !important; animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
+.stats { display: flex; gap: 34px; flex-wrap: wrap; align-items: flex-end; }
+.stat .v { font-size: 28px; font-weight: 400; color: var(--accent); line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat .v small { font-size: 13px; color: var(--sub); letter-spacing: 0; }
+.stat .k { font-size: 11.5px; color: var(--sub); margin-top: 2px; }
+.xfer:not(.running) .stat .v { font-size: 16px; color: var(--text); }
+.xacts { margin-left: auto; display: flex; gap: 4px; align-self: center; }
+.xnote { font-size: 13px; margin-top: 8px; overflow-wrap: anywhere; }
+
+footer { color: var(--sub); font-size: 12px; text-align: center; padding: 18px 24px 26px; }
+footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; padding: 1px 6px; font: inherit; }
+
+/* modal panels */
+.scrim { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(3px); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+.scrim.open { display: flex; }
+.panel { background: var(--bg2); border-radius: 12px; padding: 26px; width: min(520px, 100%); }
+.panel .title { color: var(--sub); font-size: 13px; }
+.panel .big { font-size: 24px; font-weight: 500; margin: 6px 0 2px; overflow-wrap: anywhere; }
+.panel label { display: block; color: var(--sub); font-size: 12.5px; margin: 18px 0 6px; }
+.panel .row { display: flex; gap: 8px; align-items: center; }
+.panel .path { flex: 1; background: var(--bg); border-radius: 8px; padding: 8px 12px; overflow-wrap: anywhere; font-size: 13px; }
+.panel .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+.panel input, .panel select { width: 100%; background: var(--bg); }
+.note { font-size: 13px; color: var(--sub); margin-top: 10px; }
+.note.warn { color: var(--error); }
+.paths { list-style: none; margin: 10px 0 0; padding: 0; max-height: 140px; overflow: auto; font-size: 13px; }
+.paths li { color: var(--sub); padding: 2px 0; overflow-wrap: anywhere; }
+.paths li::before { content: "› "; color: var(--accent); }
+.codein { font-size: 30px !important; letter-spacing: .3em; text-align: center; color: var(--accent) !important; }
+.themes { display: flex; gap: 8px; flex-wrap: wrap; }
+.themes button { display: flex; gap: 6px; align-items: center; background: var(--bg); color: var(--text); padding: 6px 10px; }
+.themes button.on { outline: 2px solid var(--accent); }
+.swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+/* first run */
+.welcome { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column; align-items: center; justify-content: center; padding: 24px; z-index: 20; }
+.welcome.open { display: flex; }
+.welcome .logo { margin-bottom: 46px; font-size: 30px; }
+.welcome .q { color: var(--sub); margin-bottom: 18px; text-align: center; }
+.welcome input { background: none; font-size: 32px; font-weight: 400; color: var(--accent); text-align: center; width: min(640px, 100%); border-bottom: 2px solid var(--bg3); border-radius: 0; padding: 6px; caret-color: var(--accent); }
+.welcome input:focus { outline: none; border-bottom-color: var(--accent); }
+.welcome .hint { color: var(--sub); font-size: 13px; margin-top: 22px; }
+.welcome .hint kbd { background: var(--bg2); color: var(--text); border-radius: 4px; padding: 1px 6px; font: inherit; }
+.welcome .err { margin-top: 12px; min-height: 1.5em; font-size: 13px; }
+
+.toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px; font-size: 13.5px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; }
+.toast.show { opacity: 1; }
+.banner { display: none; background: var(--error); color: var(--bg); text-align: center; padding: 6px; font-size: 13px; }
+.signin { display: none; text-align: center; margin-top: 18vh; }
+.signin.open { display: block; }
+@media (max-width: 640px) {
+  nav.top { flex-wrap: wrap; gap: 12px; }
+  .code { text-align: left; }
+  .stats { gap: 20px; }
+  .peer { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+<div class="banner" id="offline">bit-flow isn't running anymore. start it again, then reload.</div>
+
+<div class="wrap">
+  <nav class="top">
+    <div class="logo"><span><span class="mark">bit</span>-flow</span><span class="tag">fast local transfer</span></div>
+    <div class="spacer"></div>
+    <div class="code" id="codeBox" hidden title="other computers need this code to send you files">
+      <div class="label">your pairing code</div>
+      <div class="digits" id="code">--- ---</div>
+    </div>
+    <div class="icons" id="icons" hidden>
+      <button id="themeBtn" title="change theme (t)">theme</button>
+      <button id="settingsBtn" title="settings (s)">settings</button>
+    </div>
+  </nav>
+
+  <div class="signin" id="signin">
+    <div class="sub">this browser isn't signed in to bit-flow.</div>
+    <div class="sub" style="margin-top:8px">open the link bit-flow printed when it started.</div>
+  </div>
+
+  <main id="main" hidden>
+    <div class="line" id="statusLine"></div>
+
+    <section>
+      <h2>nearby <button id="rescan" title="scan again (r)">refresh</button></h2>
+      <div id="peers"><div class="empty">looking for devices…</div></div>
+      <div class="manual">
+        <span class="sub">or</span>
+        <input id="addr" placeholder="192.168.1.40" autocomplete="off" spellcheck="false" aria-label="address">
+        <button class="key" data-manual="files">files</button>
+        <button class="key" data-manual="folder">folder</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>transfers <button id="clearBtn">clear finished</button></h2>
+      <div id="xfers"></div>
+    </section>
+  </main>
+</div>
+
+<footer id="foot"></footer>
+
+<!-- first run: name this device -->
+<div class="welcome" id="welcome">
+  <div class="logo"><span><span class="mark">bit</span>-flow</span></div>
+  <div class="q">what should other devices call you?</div>
+  <input id="wName" maxlength="40" autocomplete="off" spellcheck="false" aria-label="device name">
+  <div class="err" id="wErr"></div>
+  <div class="hint"><kbd>enter</kbd> to continue</div>
+</div>
+
+<!-- incoming offer -->
+<div class="scrim" id="offerDlg">
+  <div class="panel" role="dialog" aria-modal="true">
+    <div class="title"><span id="ofFrom" class="acc"></span> wants to send you</div>
+    <div class="big" id="ofName"></div>
+    <div class="sub" id="ofMeta"></div>
+    <div id="ofNotes"></div>
+    <label>save to</label>
+    <div class="row"><div class="path" id="ofDest"></div><button class="key" id="ofChange">change</button></div>
+    <div class="actions"><button id="ofDecline">decline <span class="sub">esc</span></button><button class="go" id="ofAccept">accept ↵</button></div>
+  </div>
+</div>
+
+<!-- send -->
+<div class="scrim" id="sendDlg">
+  <div class="panel" role="dialog" aria-modal="true">
+    <div class="title">send to <span id="sdPeer" class="acc"></span></div>
+    <ul class="paths" id="sdPaths"></ul>
+    <label for="sdCode">pairing code shown on <span id="sdPeer2"></span></label>
+    <input id="sdCode" class="codein" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="······">
+    <div class="err note" id="sdErr"></div>
+    <div class="actions"><button id="sdCancel">cancel <span class="sub">esc</span></button><button class="go" id="sdGo">send ↵</button></div>
+  </div>
+</div>
+
+<!-- settings -->
+<div class="scrim" id="setDlg">
+  <div class="panel" role="dialog" aria-modal="true">
+    <div class="title">settings</div>
+    <label for="setName">device name</label>
+    <input id="setName" maxlength="40" autocomplete="off">
+    <label>save received files in</label>
+    <div class="row"><div class="path" id="setDest"></div><button class="key" id="setDestBtn">change</button></div>
+    <label for="setConflict">when a different file with the same name exists</label>
+    <select id="setConflict">
+      <option value="error">refuse the transfer</option>
+      <option value="rename">keep both — save as "name (1)"</option>
+      <option value="skip">keep mine, skip theirs</option>
+      <option value="overwrite">replace mine</option>
+    </select>
+    <label>theme</label>
+    <div class="themes" id="themes"></div>
+    <div class="note">identical files are always skipped; interrupted transfers resume where they stopped.</div>
+    <div class="note" id="sessInfo"></div>
+    <div class="err note" id="setErr"></div>
+    <div class="actions"><button id="forgetBtn" class="err" style="margin-right:auto">sign out this browser</button><button id="setCancel">cancel</button><button class="go" id="setSave">save</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const THEMES = {flow: "#2ee6c5", ember: "#ff9248", violet: "#b69bff", paper: "#0f8a7e"};
+let state = null, me = null;
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {"X-Bitflow": "1", "Content-Type": "application/json"},
+    credentials: "same-origin",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || res.statusText); e.status = res.status; throw e; }
+  return data;
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+// ---- formatting (decimal units, like drives and links are sold) ----
+function bytes(n, parts) {
+  const u = n >= 1e12 ? [1e12, "TB"] : n >= 1e9 ? [1e9, "GB"] : n >= 1e6 ? [1e6, "MB"] : n >= 1e3 ? [1e3, "KB"] : [1, "B"];
+  const v = u[0] === 1 ? String(n) : (n / u[0]).toFixed(n / u[0] >= 100 ? 0 : n / u[0] >= 10 ? 1 : 2);
+  return parts ? [v, u[1]] : v + " " + u[1];
+}
+function dur(s) {
+  if (!isFinite(s) || s < 0) return "–";
+  s = Math.round(s);
+  if (s >= 3600) return Math.floor(s / 3600) + "h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") + "m";
+  if (s >= 60) return Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s";
+  return s + "s";
+}
+function tidy(p, max = 52) {
+  p = state && state.home && p && p.startsWith(state.home) ? "~" + p.slice(state.home.length) : (p || "");
+  if (p.length <= max) return p;
+  const tail = p.slice(p.length - Math.floor(max * .6));
+  return p.slice(0, max - tail.length - 1) + "…" + tail;
+}
+const fmtCode = (c) => c && c.length === 6 ? c.slice(0, 3) + " " + c.slice(3) : (c || "");
+const osName = (o) => ({darwin: "mac", windows: "windows", linux: "linux"}[o] || o);
+const stat = (v, k) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+
+// ---- session ----
+function applyTheme(t) { document.documentElement.dataset.theme = THEMES[t] ? t : "flow"; }
+async function boot() {
+  const token = new URLSearchParams(location.hash.slice(1)).get("t");
+  if (token) {
+    // Trade the one-time launch token for this browser's session cookie.
+    await fetch("/api/session/start", {method: "POST", headers: {"X-Bitflow": "1", "X-Bitflow-Token": token}, credentials: "same-origin"}).catch(() => {});
+    history.replaceState(null, "", location.pathname);
+  }
+  try { me = await api("/api/session"); }
+  catch (e) { $("signin").classList.add("open"); return; }
+  applyTheme(me.theme);
+  if (me.needs_name) showWelcome(); else start();
+}
+function showWelcome() {
+  $("welcome").classList.add("open");
+  $("wName").value = me.suggested || "";
+  $("wName").focus(); $("wName").select();
+}
+$("wName").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  try {
+    me = await api("/api/session", {name: $("wName").value});
+    $("welcome").classList.remove("open");
+    start();
+  } catch (err) { $("wErr").textContent = err.message; }
+});
+function start() {
+  $("main").hidden = false; $("codeBox").hidden = false; $("icons").hidden = false;
+  connect(); scan();
+  setInterval(() => { if (!document.hidden) scan(); }, 8000);
+}
+
+// ---- rendering ----
+function render(s) {
+  state = s;
+  $("code").textContent = fmtCode(s.code);
+  $("statusLine").innerHTML = `<b>${esc(s.name)}</b> · receiving into <button id="destLink" title="${esc(s.settings.dest)}">${esc(tidy(s.settings.dest))}</button> · port ${s.port}`;
+  const addrs = (s.addrs || []).map((a) => `${esc(a.label.toLowerCase())} ${esc(a.ip)}`).join("  ·  ");
+  $("foot").innerHTML = `<kbd>r</kbd> refresh &nbsp; <kbd>t</kbd> theme &nbsp; <kbd>s</kbd> settings &nbsp;·&nbsp; v${esc(s.version)}${addrs ? " &nbsp;·&nbsp; " + addrs : ""}`;
+  renderPeers(s); renderXfers(s); renderOffer(s);
+}
+function renderPeers(s) {
+  const el = $("peers");
+  if (!s.peers || !s.peers.length) {
+    el.innerHTML = `<div class="empty">${s.scanning ? "looking for devices…" : "nobody here yet — open bit-flow (or run <code>bitflow recv</code>) on the other computer, same network."}</div>`;
+    return;
+  }
+  el.innerHTML = s.peers.map((p) => {
+    const addr = esc(p.addrs[0] + ":" + p.port);
+    return `<div class="peer"><span class="n">${esc(p.name)}</span><span class="a">${esc(osName(p.os))} · ${esc(p.addrs[0])}</span>
+      <span class="acts"><button class="key" data-send="files" data-addr="${addr}" data-name="${esc(p.name)}">files</button><button class="key" data-send="folder" data-addr="${addr}" data-name="${esc(p.name)}">folder</button></span></div>`;
+  }).join("");
+}
+function renderXfers(s) {
+  const xs = s.transfers || [];
+  if (!xs.length) { $("xfers").innerHTML = `<div class="empty">nothing yet. send something, or share your pairing code with whoever is sending.</div>`; return; }
+  $("xfers").innerHTML = xs.map((x) => {
+    const pct = x.total > 0 ? Math.min(100, x.done / x.total * 100) : (x.state === "done" ? 100 : 0);
+    const live = x.state === "running" || x.state === "waiting";
+    const left = x.rate > 0 ? (x.total - x.done) / x.rate : NaN;
+    const label = {waiting: "waiting for accept…", running: "", done: "done", failed: "failed", declined: "declined", cancelled: "stopped"}[x.state] ?? x.state;
+    let stats;
+    if (x.state === "running") {
+      const [rv, ru] = bytes(x.rate || 0, true);
+      stats = stat(Math.floor(pct) + "<small>%</small>", "progress") + stat(rv + "<small> " + ru + "/s</small>", "speed") +
+        stat(dur(left), "left") + stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
+    } else if (x.state === "done") {
+      stats = stat(bytes(x.total), x.files + (x.files === 1 ? " file" : " files")) + (x.rate > 0 ? stat(bytes(x.rate) + "/s", "average") : "") +
+        (x.already ? stat(bytes(x.already), "already there") : "") + stat(dur((new Date(x.finished) - new Date(x.started)) / 1000), "time");
+    } else stats = stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
+    return `<div class="xfer ${esc(x.state)}">
+      <div class="xhead"><span class="arrow">${x.dir === "in" ? "↓" : "↑"}</span><span class="name">${esc(x.name)}</span>
+        <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span><span class="state">${esc(label)}</span></div>
+      <div class="bar ${x.state === "waiting" ? "waiting" : ""}"><div class="fill" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="stats">${stats}<span class="xacts">
+        ${live ? `<button data-cancel="${esc(x.id)}">stop</button>` : ""}
+        ${x.state === "done" && x.dir === "in" && x.dest ? `<button data-reveal="${esc(x.dest)}">show</button>` : ""}</span></div>
+      ${x.retrying ? `<div class="xnote err">${esc(x.retrying)}</div>` : ""}
+      ${x.error && x.state !== "declined" ? `<div class="xnote err">${esc(x.error)}</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+// ---- modals ----
+const open = (id) => $(id).classList.add("open");
+const close = (id) => $(id).classList.remove("open");
+const isOpen = (id) => $(id).classList.contains("open");
+
+let shownOffer = null, offerDest = "";
+function renderOffer(s) {
+  const of = (s.offers || [])[0];
+  if (!of) { close("offerDlg"); shownOffer = null; return; }
+  if (shownOffer === of.id) return;
+  shownOffer = of.id; offerDest = "";
+  $("ofFrom").textContent = of.from;
+  $("ofName").textContent = of.name;
+  $("ofMeta").textContent = `${of.files.toLocaleString()} ${of.files === 1 ? "file" : "files"} · ${bytes(of.total)}`;
+  $("ofDest").textContent = tidy(of.dest);
+  const notes = [];
+  if (of.resumed) notes.push(`<div class="note acc">↻ continues an earlier transfer — ${bytes(of.already)} already here</div>`);
+  else if (of.already > 0) notes.push(`<div class="note">${of.skipped} identical files (${bytes(of.already)}) already here, they'll be skipped</div>`);
+  for (const [from, to] of Object.entries(of.renames || {})) notes.push(`<div class="note">${esc(from)} exists, saving as ${esc(to)}</div>`);
+  if (of.raw) notes.push(`<div class="note warn">data will not be encrypted</div>`);
+  $("ofNotes").innerHTML = notes.join("");
+  open("offerDlg");
+}
+async function answerOffer(accept) {
+  try { await api(`/api/offers/${shownOffer}`, {accept, dest: accept ? offerDest : ""}); close("offerDlg"); }
+  catch (e) { toast(e.message); }
+}
+$("ofAccept").onclick = () => answerOffer(true);
+$("ofDecline").onclick = () => answerOffer(false);
+$("ofChange").onclick = async () => {
+  const r = await api("/api/pick", {kind: "dest"}).catch((e) => (toast(e.message), null));
+  if (r && r.paths.length) { offerDest = r.paths[0]; $("ofDest").textContent = tidy(offerDest); }
+};
+
+let sendTarget = null;
+async function startSend(kind, addr, name) {
+  if (!addr) { toast("type the other computer's address first"); $("addr").focus(); return; }
+  const r = await api("/api/pick", {kind}).catch((e) => (toast(e.message), null));
+  if (!r || !r.paths.length) return;
+  sendTarget = {addr, name, paths: r.paths};
+  $("sdPeer").textContent = name; $("sdPeer2").textContent = name;
+  $("sdPaths").innerHTML = r.paths.map((p) => `<li>${esc(tidy(p))}</li>`).join("");
+  $("sdErr").textContent = ""; $("sdCode").value = "";
+  open("sendDlg"); $("sdCode").focus();
+}
+$("sdGo").onclick = async () => {
+  const code = $("sdCode").value.replace(/\D/g, "");
+  if (code.length < 6) { $("sdErr").textContent = "enter the 6-digit code shown on " + sendTarget.name; return; }
+  $("sdGo").disabled = true;
+  try { await api("/api/send", {to: sendTarget.addr, peer: sendTarget.name, paths: sendTarget.paths, code}); close("sendDlg"); }
+  catch (e) { $("sdErr").textContent = e.message; }
+  finally { $("sdGo").disabled = false; }
+};
+$("sdCancel").onclick = () => close("sendDlg");
+
+let newDest = "", newTheme = "";
+function openSettings() {
+  if (!state) return;
+  newDest = ""; newTheme = me.theme;
+  $("setName").value = state.name;
+  $("setDest").textContent = tidy(state.settings.dest);
+  $("setConflict").value = state.settings.conflict;
+  $("setErr").textContent = "";
+  $("sessInfo").textContent = me.created ? `this browser has been signed in since ${new Date(me.created).toLocaleDateString()}` : "";
+  renderThemes();
+  open("setDlg"); $("setName").focus();
+}
+function renderThemes() {
+  $("themes").innerHTML = Object.entries(THEMES).map(([t, c]) =>
+    `<button data-theme-pick="${t}" class="${t === newTheme ? "on" : ""}"><span class="swatch" style="background:${c}"></span>${t}</button>`).join("");
+}
+$("setDestBtn").onclick = async () => {
+  const r = await api("/api/pick", {kind: "dest"}).catch((e) => (toast(e.message), null));
+  if (r && r.paths.length) { newDest = r.paths[0]; $("setDest").textContent = tidy(newDest); }
+};
+$("setSave").onclick = async () => {
+  try {
+    await api("/api/settings", {name: $("setName").value, dest: newDest || state.settings.dest, conflict: $("setConflict").value});
+    me = await api("/api/session", {name: $("setName").value, theme: newTheme});
+    applyTheme(me.theme); close("setDlg"); toast("saved");
+  } catch (e) { $("setErr").textContent = e.message; }
+};
+$("setCancel").onclick = () => { applyTheme(me.theme); close("setDlg"); };
+$("forgetBtn").onclick = async () => { await api("/api/session/forget", {}).catch(() => {}); location.reload(); };
+$("settingsBtn").onclick = openSettings;
+
+async function cycleTheme() {
+  const names = Object.keys(THEMES);
+  const next = names[(names.indexOf(me.theme) + 1) % names.length];
+  applyTheme(next);
+  me = await api("/api/session", {theme: next}).catch(() => me);
+  toast("theme: " + next);
+}
+$("themeBtn").onclick = cycleTheme;
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.send) startSend(b.dataset.send, b.dataset.addr, b.dataset.name);
+  else if (b.dataset.manual) { const a = $("addr").value.trim(); startSend(b.dataset.manual, a, a); }
+  else if (b.dataset.cancel) api(`/api/transfers/${b.dataset.cancel}/cancel`, {}).catch((e) => toast(e.message));
+  else if (b.dataset.reveal) api("/api/reveal", {path: b.dataset.reveal}).catch((e) => toast(e.message));
+  else if (b.dataset.themePick) { newTheme = b.dataset.themePick; applyTheme(newTheme); renderThemes(); }
+  else if (b.id === "destLink") openSettings();
+});
+
+// keyboard: enter/esc in dialogs, single keys on the main screen
+document.addEventListener("keydown", (e) => {
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName);
+  if (isOpen("offerDlg")) { if (e.key === "Enter") answerOffer(true); if (e.key === "Escape") answerOffer(false); return; }
+  if (isOpen("sendDlg")) { if (e.key === "Enter") $("sdGo").click(); if (e.key === "Escape") close("sendDlg"); return; }
+  if (isOpen("setDlg")) { if (e.key === "Escape") $("setCancel").click(); return; }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || $("main").hidden) return;
+  if (e.key === "r") scan();
+  else if (e.key === "t") cycleTheme();
+  else if (e.key === "s") openSettings();
+});
+
+// ---- live state ----
+function scan() { api("/api/scan", {}).catch(() => {}); }
+$("rescan").onclick = scan;
+$("clearBtn").onclick = () => api("/api/transfers/clear", {}).catch((e) => toast(e.message));
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (e) => { $("offline").style.display = "none"; render(JSON.parse(e.data)); };
+  es.onerror = () => { $("offline").style.display = "block"; };
+}
+boot();
+</script>
+</body>
+</html>

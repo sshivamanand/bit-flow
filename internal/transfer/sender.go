@@ -29,6 +29,8 @@ type Options struct {
 	SockBuf   int
 	Retries   int // reconnect attempts after a dropped connection; 0 = default, <0 = none
 	OnRetry   func(attempt int, err error, wait time.Duration)
+	// OnCodeChange reports a new pairing code after repeated wrong guesses (Serve only).
+	OnCodeChange func(code string)
 }
 
 func (o *Options) fill() {
@@ -101,6 +103,85 @@ func (s *Sender) Send(ctx context.Context, addr string, m *planner.Manifest) (Re
 	if err := s.validate(); err != nil {
 		return Result{}, err
 	}
+	offer, plan, src := s.prepare(m)
+	for attempt := 1; ; attempt++ {
+		c, err := s.dialAttempt(ctx, addr, offer, plan, src)
+		if err == nil {
+			return s.result(c), nil
+		}
+		// Retry only transfers that got going: before the first accept, an error
+		// means a wrong address or a receiver that isn't running, so fail fast.
+		if IsPermanent(err) || ctx.Err() != nil || attempt > s.opts.Retries || s.firstAccept.Load() == 0 {
+			return Result{}, err
+		}
+		wait := backoff(attempt)
+		if s.opts.OnRetry != nil {
+			s.opts.OnRetry(attempt, err, wait)
+		}
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return Result{}, err
+		}
+	}
+}
+
+// Serve waits on ln for a receiver to fetch the manifest (reverse mode, for
+// when the receiver can't accept incoming connections). Interrupted transfers
+// resume when the receiver reconnects. It returns after one complete transfer.
+func (s *Sender) Serve(ctx context.Context, ln net.Listener, m *planner.Manifest) (Result, error) {
+	if err := s.validate(); err != nil {
+		return Result{}, err
+	}
+	h, err := newHub(s.opts.Code, s.opts.SockBuf)
+	if err != nil {
+		return Result{}, err
+	}
+	h.onCodeChange = s.opts.OnCodeChange
+	offer, plan, src := s.prepare(m)
+
+	type outcome struct {
+		c   proto.Complete
+		err error
+	}
+	results := make(chan outcome, 1)
+	var busy sync.Mutex
+	h.onControl = func(ctx context.Context, ctrl net.Conn, lk *hubLink) error {
+		defer ctrl.Close()
+		if !busy.TryLock() {
+			_ = proto.WriteMsg(ctrl, proto.MsgError, proto.ErrorMsg{Message: "sender is busy with another receiver"})
+			return errBusy
+		}
+		defer busy.Unlock()
+		c, err := s.session(ctx, ctrl, lk, offer, plan, src)
+		if err == nil || IsPermanent(err) {
+			select {
+			case results <- outcome{c, err}:
+			default:
+			}
+		}
+		return err
+	}
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go h.serve(sctx, ln, false)
+	select {
+	case o := <-results:
+		if o.err != nil {
+			return Result{}, o.err
+		}
+		return s.result(o.c), nil
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	}
+}
+
+func backoff(attempt int) time.Duration {
+	return min(time.Duration(1<<(attempt-1))*time.Second, 10*time.Second)
+}
+
+// prepare builds the offer and the planning function for a manifest.
+func (s *Sender) prepare(m *planner.Manifest) (proto.Offer, func(*proto.Accept) []planner.Unit, source) {
 	offer := s.offer(m.Total)
 	offer.Files = m.Files
 	plan := func(a *proto.Accept) []planner.Unit {
@@ -114,28 +195,7 @@ func (s *Sender) Send(ctx context.Context, addr string, m *planner.Manifest) (Re
 		}
 		return m.Units(s.opts.ChunkSize, s.opts.BlockSize, skip, have)
 	}
-	src := fileSource{paths: m.Sources, files: m.Files}
-
-	for attempt := 1; ; attempt++ {
-		c, err := s.attempt(ctx, addr, offer, plan, src)
-		if err == nil {
-			return s.result(c), nil
-		}
-		// Retry only transfers that got going: before the first accept, an error
-		// means a wrong address or a receiver that isn't running, so fail fast.
-		if IsPermanent(err) || ctx.Err() != nil || attempt > s.opts.Retries || s.firstAccept.Load() == 0 {
-			return Result{}, err
-		}
-		wait := min(time.Duration(1<<(attempt-1))*time.Second, 10*time.Second)
-		if s.opts.OnRetry != nil {
-			s.opts.OnRetry(attempt, err, wait)
-		}
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			return Result{}, err
-		}
-	}
+	return offer, plan, fileSource{paths: m.Sources, files: m.Files}
 }
 
 // Bench streams size bytes of synthetic data that the receiver verifies and discards.
@@ -151,7 +211,7 @@ func (s *Sender) Bench(ctx context.Context, addr string, size int64) (Result, er
 		units = append(units, planner.Unit{Offset: off, Len: min(s.opts.ChunkSize, size-off)})
 	}
 	plan := func(*proto.Accept) []planner.Unit { return units }
-	c, err := s.attempt(ctx, addr, offer, plan, newSynthSource(s.opts.BlockSize))
+	c, err := s.dialAttempt(ctx, addr, offer, plan, newSynthSource(s.opts.BlockSize))
 	if err != nil {
 		return Result{}, err
 	}
@@ -192,47 +252,29 @@ func (s *Sender) offer(total int64) proto.Offer {
 	}
 }
 
-// attempt runs one connection's worth of a transfer: pair, offer, stream.
-func (s *Sender) attempt(ctx context.Context, addr string, offer proto.Offer, plan func(*proto.Accept) []planner.Unit, src source) (proto.Complete, error) {
+// dialAttempt connects to a listening receiver and runs one session.
+func (s *Sender) dialAttempt(ctx context.Context, addr string, offer proto.Offer, plan func(*proto.Accept) []planner.Unit, src source) (proto.Complete, error) {
 	id, err := s.identity()
 	if err != nil {
 		return proto.Complete{}, permanent(err)
 	}
+	ctrl, lk, err := dialControl(ctx, addr, s.opts.Code, id, s.opts.SockBuf)
+	if err != nil {
+		return proto.Complete{}, err
+	}
+	defer ctrl.Close()
+	return s.session(ctx, ctrl, lk, offer, plan, src)
+}
+
+// session runs the sender's side of one transfer on a secured control connection.
+func (s *Sender) session(ctx context.Context, ctrl net.Conn, lk link, offer proto.Offer, plan func(*proto.Accept) []planner.Unit, src source) (proto.Complete, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	defer closeOnDone(ctx, ctrl)()
 	s.accepted.Store(false)
 	s.sent.Store(0)
 
-	var sid proto.SessionID
-	if _, err := rand.Read(sid[:]); err != nil {
-		return proto.Complete{}, err
-	}
-
-	conn, err := dial(ctx, addr, 0)
-	if err != nil {
-		return proto.Complete{}, fmt.Errorf("connect to receiver: %w", err)
-	}
-	defer conn.Close()
-	defer closeOnDone(ctx, conn)()
-
-	// Pair over the plain connection, then switch it to pinned TLS.
-	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	if err := proto.WriteHello(conn, proto.Hello{Kind: proto.KindControl, Session: sid}); err != nil {
-		return proto.Complete{}, err
-	}
-	paired, err := secure.PairDialer(conn, s.opts.Code, sid, id)
-	if errors.Is(err, secure.ErrWrongCode) {
-		return proto.Complete{}, permanent(fmt.Errorf("%w: check the code shown on the receiver", err))
-	}
-	if err != nil {
-		return proto.Complete{}, fmt.Errorf("pairing: %w", err)
-	}
-	ctrl := id.Client(conn, paired.PeerFP)
-	if err := ctrl.HandshakeContext(ctx); err != nil {
-		return proto.Complete{}, fmt.Errorf("secure channel: %w", err)
-	}
-	_ = conn.SetDeadline(time.Time{})
-
+	lk.expect(offer.Streams, offer.Raw)
 	if err := proto.WriteMsg(ctrl, proto.MsgOffer, offer); err != nil {
 		return proto.Complete{}, err
 	}
@@ -266,15 +308,13 @@ func (s *Sender) attempt(ctx context.Context, addr string, offer proto.Offer, pl
 	}
 	s.accepted.Store(true)
 
-	conns, err := s.openStreams(ctx, addr, sid, offer.Streams, accept.Raw, paired, id)
-	for _, c := range conns {
-		if c != nil {
-			defer c.Close()
-			defer closeOnDone(ctx, c)()
-		}
-	}
+	conns, err := lk.streams(ctx, offer.Streams, accept.Raw)
 	if err != nil {
-		return proto.Complete{}, fmt.Errorf("open data streams: %w", err)
+		return proto.Complete{}, err
+	}
+	for _, c := range conns {
+		defer c.Close()
+		defer closeOnDone(ctx, c)()
 	}
 
 	// Control reader: progress, completion, remote errors.
@@ -335,47 +375,6 @@ func (s *Sender) attempt(ctx context.Context, addr string, offer proto.Offer, pl
 	case <-ctx.Done():
 		return proto.Complete{}, context.Cause(ctx)
 	}
-}
-
-// openStreams dials n data connections in parallel and authenticates each one.
-func (s *Sender) openStreams(ctx context.Context, addr string, sid proto.SessionID, n int, raw bool, paired secure.Paired, id *secure.Identity) ([]net.Conn, error) {
-	conns := make([]net.Conn, n)
-	var errs firstError
-	var wg sync.WaitGroup
-	for i := range conns {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			c, err := dial(ctx, addr, s.opts.SockBuf)
-			if err != nil {
-				errs.set(err)
-				return
-			}
-			conns[i] = c
-			_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
-			if err := proto.WriteHello(c, proto.Hello{Kind: proto.KindData, Session: sid, Stream: uint16(i)}); err != nil {
-				errs.set(err)
-				return
-			}
-			if raw {
-				tok := secure.StreamToken(paired.Key, sid, uint16(i))
-				if _, err := c.Write(tok[:]); err != nil {
-					errs.set(err)
-					return
-				}
-			} else {
-				tc := id.Client(c, paired.PeerFP)
-				if err := tc.HandshakeContext(ctx); err != nil {
-					errs.set(err)
-					return
-				}
-				conns[i] = tc
-			}
-			_ = conns[i].SetDeadline(time.Time{})
-		}()
-	}
-	wg.Wait()
-	return conns, errs.get()
 }
 
 // watchdog cancels the attempt if the receiver stops making progress.

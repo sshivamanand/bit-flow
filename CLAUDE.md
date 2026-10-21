@@ -18,17 +18,23 @@ Repo: `github.com/sshivamanand/bit-flow` (Go module path is the same). Author: S
 make build                     # bin/bitflow (stripped, -trimpath)
 make test                      # go test -race ./...
 make bench                     # loopback engine ceiling, stream sweep
+make e2e                       # real binary, every user-facing flow (macOS, ~1 min, ~10 GB sparse temp data)
 make cross                     # dist/bitflow-<os>-<arch>[.exe] for darwin/windows/linux × arm64/amd64
 go vet ./... && GOOS=windows go vet ./...   # always vet Windows too: per-OS files exist
 gofmt -l .                     # must print nothing
 ```
 
-End-to-end by hand (two terminals, same machine):
+End-to-end by hand (two terminals, same machine). Give each side its own config dir, or discovery
+treats them as the same device and ignores the other:
 
 ```bash
-bin/bitflow recv --to /tmp/in --yes            # prints the pairing code + addresses
-bin/bitflow send ./some/folder --to 127.0.0.1 --code <code>
+BITFLOW_CONFIG_DIR=/tmp/a bin/bitflow recv --to /tmp/in --yes --port 7711   # prints code + name
+BITFLOW_CONFIG_DIR=/tmp/b bin/bitflow send ./some/folder --code <code>      # finds it by discovery
+BITFLOW_CONFIG_DIR=/tmp/b bin/bitflow ui --no-browser                       # app; open the printed URL
 ```
+
+Avoid clicking "files…/folder…" in the UI during automated checks. That opens a real native dialog on the
+user's screen. Drive `/api/send` with the launch token instead (`X-Bitflow-Token` + `X-Bitflow: 1`).
 
 Re-render the diagram after editing `docs/architecture.svg`:
 
@@ -49,17 +55,24 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
 | `internal/store` | Receiver side: path safety, conflict policy, preallocation, out-of-order `WriteAt`, packs, `.bitflow-partial` + rename, resume journal, free-space checks. |
 | `internal/transfer` | The engine: `Sender` / `Receiver`, control session, N data streams, pipelines, retries. |
 | `internal/netinfo` | Interface listing with friendly labels (Wi-Fi, Ethernet, Thunderbolt Bridge). |
+| `internal/discovery` | Find peers: UDP multicast + broadcast query, unicast answers, TCP /24 probe fallback, name lookup. |
+| `internal/config` | Device ID, name, default folder, conflict policy (`config.json` in the user config dir; `BITFLOW_CONFIG_DIR` overrides it). |
+| `internal/ui` | Desktop app: agent (`App`), loopback HTTP API + SSE (`Server`), sessions, history, native pickers, embedded `static/index.html`. |
 | `internal/awake` | Keep the machine awake during transfers (per-OS files). |
 | `internal/units` | Size parsing/formatting. |
 
-Later milestones add `internal/discovery`, `internal/ui` (embedded web UI), `internal/web` (browser
-fallback + `/get` bootstrap), and `internal/steam`. Check PLAN.md for what has landed.
+`internal/transfer` is split into `link.go` (who dials and who listens: `dialLink`, `hub`), `sender.go` and
+`receiver.go` (session logic, independent of who dialed), and `common.go`. Later milestones add
+`internal/web` (browser fallback + `/get` bootstrap) and `internal/steam`. Check PLAN.md for what has landed.
 
 ## Invariants (don't break these)
 
 - **Every connection starts with `proto.Hello`.** Control connections then pair (CPace) and upgrade to
-  TLS 1.3 pinned to the exchanged fingerprints. Data connections are TLS with the same pins, or, in raw
-  mode, authenticated with an HMAC token from the pairing key. No unauthenticated path exists. Keep it that way.
+  TLS 1.3 pinned to the exchanged fingerprints. Data connections are TLS with the same pins (`KindData`), or
+  `KindDataRaw` with an HMAC token from the pairing key. `KindProbe` only returns public discovery info.
+  No unauthenticated path to files exists. Keep it that way.
+- **The UI server only listens on loopback**, checks the Host header, needs a session cookie or the launch
+  token, and requires `X-Bitflow: 1` on writes. Never store raw session IDs (hash them).
 - **Receiver never trusts sender paths.** Everything goes through `store.SafeJoin`. Never write outside `Dest`.
 - **Existing files are never modified** unless the conflict policy says so (`overwrite`). Identical files
   (same size, mtime within 2 s) are skipped.
@@ -75,8 +88,12 @@ fallback + `/get` bootstrap), and `internal/steam`. Check PLAN.md for what has l
 
 ## Conventions
 
-- Go standard library first. Current deps: `zeebo/xxh3`, `filippo.io/cpace`, `klauspost/compress`,
-  `golang.org/x/sys`. Justify any new dependency (speed, correctness, or pure-Go portability). Builds
+- **UI style**: Monkeytype-like. Monospace everywhere, lowercase copy, one accent colour per theme (CSS variables
+  under `[data-theme=…]`), big numbers with small muted labels, keyboard shortcuts. No external fonts, scripts or
+  CDNs: the app must work offline on a LAN. Keep `index.html` a single self-contained file.
+
+- Go standard library first. Current deps: `zeebo/xxh3`, `filippo.io/cpace`, `golang.org/x/sys`,
+  `golang.org/x/net` (multicast). Native dialogs shell out to the OS (no zenity). Justify any new dependency (speed, correctness, or pure-Go portability). Builds
   must stay `CGO_ENABLED=0` for all six targets.
 - Per-OS code goes in `_darwin.go` / `_linux.go` / `_windows.go` / `_other.go` files with matching build
   constraints, never `runtime.GOOS` switches on hot paths.

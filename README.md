@@ -15,30 +15,44 @@ make test
 
 ## Use
 
+### The app
+
+```bash
+bitflow
+```
+
+This opens bit-flow in your browser (it runs locally, on `http://127.0.0.1:7710`). The first time, it asks
+what other devices should call this one. Other bit-flow computers on the network show up under
+**nearby**. Pick files or a folder, type the pairing code shown on the other screen, and go. Incoming
+transfers pop up with accept or decline and a choice of folder. Keys: `r` refresh, `t` theme, `s` settings.
+
+### The command line
+
 On the **receiving** laptop:
 
 ```bash
 bitflow recv --to ~/Games
 ```
 
-It prints a pairing code and the exact command for the other laptop, one line per network link:
-
-```
-  Pairing code:  482-913
-
-On the sending computer, run one of these (pick the fastest link):
-  Wi-Fi (en0)                bitflow send <path> --to 192.168.1.40 --code 482913
-```
-
-On the **sending** laptop:
+It prints a pairing code and its device name. On the **sending** laptop:
 
 ```bash
-bitflow send ~/Games/BigGame --to 192.168.1.40 --code 482913
+bitflow send ~/Games/BigGame --to gaming-rig --code 482913    # by device name
+bitflow send ~/Games/BigGame --to 192.168.1.40 --code 482913  # or by address
+bitflow send ~/Games/BigGame                                  # finds the receiver itself
 ```
 
-The receiver is asked to accept (`--yes` skips the prompt). Files land under `--to`, keeping the
-sender's folder structure, permissions and timestamps. Everything is encrypted (TLS 1.3, keys agreed
-through the pairing code).
+If one laptop's firewall blocks incoming connections, flip who waits:
+
+```bash
+bitflow send ~/Games/BigGame --wait                        # prints a code and waits
+bitflow recv --to ~/Games --from shivam --code 482913      # on the other laptop
+```
+
+`bitflow peers` lists bit-flow devices on the network.
+
+The receiver is asked to accept (`--yes` skips the prompt). Files keep the sender's folder structure,
+permissions and timestamps. Everything is encrypted (TLS 1.3, with keys agreed through the pairing code).
 
 - **Interrupted?** Wi-Fi drops are retried automatically. If the sender gives up or is stopped, run
   the same `send` again and it resumes where it stopped.

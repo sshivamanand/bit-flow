@@ -48,7 +48,18 @@ const (
 	webCookie  = "bitflow_web"
 	webSession = 12 * time.Hour
 	maxChunk   = 16 << 20
+	// uploadIdle drops uploads a browser abandoned, closing their files and
+	// removing the partial data (an open handle also blocks deletion on Windows).
+	uploadIdle = 15 * time.Minute
 )
+
+// Server serves browsers. Close it to release any unfinished uploads.
+type Server struct {
+	http.Handler
+	s    *server
+	stop chan struct{}
+	once sync.Once
+}
 
 type server struct {
 	o Options
@@ -68,11 +79,14 @@ type upload struct {
 	written int64
 	from    string
 	done    bool
+	touched time.Time
 }
 
-// NewServer returns the handler for browser requests.
-func NewServer(o Options) http.Handler {
+// NewServer returns the server for browser requests.
+func NewServer(o Options) *Server {
 	s := &server{o: o, sessions: map[string]time.Time{}, uploads: map[string]*upload{}}
+	srv := &Server{s: s, stop: make(chan struct{})}
+	go srv.reap()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.index)
 	mux.HandleFunc("GET /get", s.index)
@@ -84,7 +98,49 @@ func NewServer(o Options) http.Handler {
 	mux.HandleFunc("PUT /web/upload/{id}", s.auth(s.putChunk))
 	mux.HandleFunc("GET /web/list", s.auth(s.list))
 	mux.HandleFunc("GET /web/dl/{i}", s.auth(s.download))
-	return securityHeaders(mux)
+	srv.Handler = securityHeaders(mux)
+	return srv
+}
+
+// Close drops unfinished uploads.
+func (srv *Server) Close() {
+	srv.once.Do(func() { close(srv.stop) })
+	srv.s.dropUploads(func(*upload) bool { return true })
+}
+
+func (srv *Server) reap() {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-srv.stop:
+			return
+		case now := <-t.C:
+			srv.s.dropUploads(func(u *upload) bool { return now.Sub(u.touched) > uploadIdle })
+		}
+	}
+}
+
+// dropUploads closes and removes unfinished uploads matching drop.
+func (s *server) dropUploads(drop func(*upload) bool) {
+	s.mu.Lock()
+	var victims []*upload
+	for id, u := range s.uploads {
+		u.mu.Lock()
+		if !u.done && drop(u) {
+			victims = append(victims, u)
+			delete(s.uploads, id)
+		}
+		u.mu.Unlock()
+	}
+	s.mu.Unlock()
+	for _, u := range victims {
+		u.mu.Lock()
+		u.done = true
+		u.f.Close()
+		os.Remove(u.partial)
+		u.mu.Unlock()
+	}
 }
 
 func securityHeaders(h http.Handler) http.Handler {
@@ -223,7 +279,7 @@ func (s *server) startUpload(w http.ResponseWriter, r *http.Request) {
 		replyErr(w, err)
 		return
 	}
-	u := &upload{final: final, partial: partial, f: f, size: req.Size, chunks: map[int64]int64{}, from: clientName(r)}
+	u := &upload{final: final, partial: partial, f: f, size: req.Size, chunks: map[int64]int64{}, from: clientName(r), touched: time.Now()}
 	id := randomID(12)
 	s.mu.Lock()
 	s.uploads[id] = u
@@ -272,6 +328,7 @@ func (s *server) putChunk(w http.ResponseWriter, r *http.Request) {
 		u.chunks[off] = int64(len(buf))
 		u.written += int64(len(buf))
 	}
+	u.touched = time.Now()
 	complete := u.written >= u.size
 	u.mu.Unlock()
 	if complete {

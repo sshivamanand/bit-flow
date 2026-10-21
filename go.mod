@@ -11,6 +11,7 @@ require (
 
 require (
 	github.com/gtank/ristretto255 v0.1.2 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 )

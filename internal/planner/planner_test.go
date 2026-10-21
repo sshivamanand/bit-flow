@@ -97,14 +97,15 @@ func TestBuild(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(game, "data", "empty"), 0o755))
 	must(t, os.WriteFile(filepath.Join(game, "data", "a.pak"), make([]byte, 100), 0o644))
 	must(t, os.WriteFile(filepath.Join(dir, "solo.iso"), make([]byte, 7), 0o644))
-	must(t, os.Symlink("a.pak", filepath.Join(game, "data", "link")))
+	must(t, os.Symlink("a.pak", filepath.Join(game, "data", "link")))            // inside: sent
+	must(t, os.Symlink("../../solo.iso", filepath.Join(game, "data", "escape"))) // outside: skipped
 
 	m, err := Build([]string{game, filepath.Join(dir, "solo.iso")})
 	must(t, err)
-	if m.Total != 107 || m.FileCount() != 2 || len(m.Skipped) != 1 {
+	if m.Total != 107 || m.FileCount() != 3 || len(m.Skipped) != 1 {
 		t.Fatalf("total=%d files=%d skipped=%v", m.Total, m.FileCount(), m.Skipped)
 	}
-	want := map[string]bool{"Game": true, "Game/data": true, "Game/data/a.pak": true, "Game/data/empty": true, "solo.iso": true}
+	want := map[string]bool{"Game": true, "Game/data": true, "Game/data/a.pak": true, "Game/data/empty": true, "Game/data/link": true, "solo.iso": true}
 	for _, f := range m.Files {
 		if !want[f.Path] {
 			t.Errorf("unexpected entry %q", f.Path)
@@ -117,6 +118,21 @@ func TestBuild(t *testing.T) {
 
 	if _, err := Build([]string{game, game}); err == nil {
 		t.Error("duplicate top-level names should fail")
+	}
+}
+
+func TestLinkInside(t *testing.T) {
+	ok := [][2]string{{"Game/lib/libx.so", "libx.so.1"}, {"Game/F.framework/Current", "Versions/A"}, {"Game/a/b", "../c"}, {"Game/a/b", ".."}}
+	for _, c := range ok {
+		if !LinkInside(c[0], c[1]) {
+			t.Errorf("%s -> %s should be inside", c[0], c[1])
+		}
+	}
+	bad := [][2]string{{"Game/a", "/etc/passwd"}, {"Game/a", "../../x"}, {"Game/a/b", "../../../Other"}, {"Game/a", ""}, {"Game", "."}}
+	for _, c := range bad {
+		if LinkInside(c[0], c[1]) {
+			t.Errorf("%s -> %s should be rejected", c[0], c[1])
+		}
 	}
 }
 

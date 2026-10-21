@@ -6,7 +6,8 @@
 // length-prefixed JSON messages (offer, accept, progress, complete, error).
 // Data streams carry back-to-back frames: a fixed 33-byte header followed by
 // the block payload, terminated by an END frame. A PACK frame carries several
-// whole small files.
+// whole small files. A COMPRESSED frame's payload is zstd; RawLen is its size
+// once decompressed, and the checksum always covers the raw bytes.
 package proto
 
 import (
@@ -21,7 +22,7 @@ import (
 
 const (
 	Magic       = "BFLW"
-	Version     = 3
+	Version     = 4
 	DefaultPort = 7700
 )
 
@@ -98,6 +99,7 @@ type FileEntry struct {
 	Mode  uint32 `json:"m,omitempty"` // permission bits
 	MTime int64  `json:"t,omitempty"` // unix nanoseconds
 	Dir   bool   `json:"d,omitempty"`
+	Link  string `json:"l,omitempty"` // symlink target (relative, inside the transfer)
 }
 
 type Offer struct {
@@ -109,6 +111,13 @@ type Offer struct {
 	Bench     bool        `json:"bench,omitempty"`  // synthetic data, receiver discards it
 	NoHash    bool        `json:"nohash,omitempty"` // skip per-block checksums
 	Raw       bool        `json:"raw,omitempty"`    // sender asks for unencrypted data streams
+	Addrs     []NetAddr   `json:"addrs,omitempty"`  // sender's interfaces (multipath, advice)
+}
+
+// NetAddr is one interface address of a peer.
+type NetAddr struct {
+	IP    string `json:"ip"`
+	Label string `json:"label,omitempty"` // Wi-Fi, Ethernet, Thunderbolt Bridge, …
 }
 
 // Range is a byte range [Off, Off+Len) of one file.
@@ -124,10 +133,11 @@ type FileRanges struct {
 }
 
 type Accept struct {
-	OK     bool   `json:"ok"`
-	Reason string `json:"reason,omitempty"`
-	Raw    bool   `json:"raw,omitempty"` // data streams skip TLS (both sides opted in)
-	Dest   string `json:"dest,omitempty"`
+	OK     bool      `json:"ok"`
+	Reason string    `json:"reason,omitempty"`
+	Raw    bool      `json:"raw,omitempty"` // data streams skip TLS (both sides opted in)
+	Dest   string    `json:"dest,omitempty"`
+	Addrs  []NetAddr `json:"addrs,omitempty"` // receiver's interfaces (multipath, advice)
 
 	// Resume / dedupe: the sender must not send these.
 	Skip []uint32     `json:"skip,omitempty"` // files already complete at the receiver
@@ -189,12 +199,13 @@ func Decode(body []byte, v any) error { return json.Unmarshal(body, v) }
 
 // ---- data frames ----
 
-// FrameHeaderSize is file(4) + offset(8) + len(4) + flags(1) + checksum(16).
-const FrameHeaderSize = 4 + 8 + 4 + 1 + 16
+// FrameHeaderSize is file(4) + offset(8) + len(4) + rawLen(4) + flags(1) + checksum(16).
+const FrameHeaderSize = 4 + 8 + 4 + 4 + 1 + 16
 
 const (
-	FlagEnd  uint8 = 1 << 0 // last frame on this stream; no payload
-	FlagPack uint8 = 1 << 1 // payload is a pack of whole small files
+	FlagEnd        uint8 = 1 << 0 // last frame on this stream; no payload
+	FlagPack       uint8 = 1 << 1 // payload is a pack of whole small files
+	FlagCompressed uint8 = 1 << 2 // payload is zstd; RawLen is the decompressed size
 )
 
 // PackEntryHeader precedes each file inside a pack payload: file u32, size u32.
@@ -223,9 +234,10 @@ func NextPackEntry(p []byte) (file uint32, data, rest []byte, err error) {
 type FrameHeader struct {
 	File   uint32
 	Offset uint64
-	Len    uint32
+	Len    uint32 // payload bytes on the wire
+	RawLen uint32 // payload bytes after decompression (== Len unless compressed)
 	Flags  uint8
-	Sum    [16]byte
+	Sum    [16]byte // XXH3-128 of the raw payload
 }
 
 func (h *FrameHeader) Put(b []byte) {
@@ -233,8 +245,9 @@ func (h *FrameHeader) Put(b []byte) {
 	binary.BigEndian.PutUint32(b[0:], h.File)
 	binary.BigEndian.PutUint64(b[4:], h.Offset)
 	binary.BigEndian.PutUint32(b[12:], h.Len)
-	b[16] = h.Flags
-	copy(b[17:33], h.Sum[:])
+	binary.BigEndian.PutUint32(b[16:], h.RawLen)
+	b[20] = h.Flags
+	copy(b[21:37], h.Sum[:])
 }
 
 func ParseFrameHeader(b []byte) FrameHeader {
@@ -243,9 +256,10 @@ func ParseFrameHeader(b []byte) FrameHeader {
 		File:   binary.BigEndian.Uint32(b[0:]),
 		Offset: binary.BigEndian.Uint64(b[4:]),
 		Len:    binary.BigEndian.Uint32(b[12:]),
-		Flags:  b[16],
+		RawLen: binary.BigEndian.Uint32(b[16:]),
+		Flags:  b[20],
 	}
-	copy(h.Sum[:], b[17:33])
+	copy(h.Sum[:], b[21:37])
 	return h
 }
 

@@ -60,6 +60,9 @@ permissions and timestamps. Everything is encrypted (TLS 1.3, with keys agreed t
   receiver picks `--on-conflict=error` (default), `skip`, `rename` (saves as `Game (1)`) or `overwrite`.
 - **Direct cable between two trusted laptops?** `recv --allow-raw` + `send --raw` drops encryption
   on the data streams for maximum speed.
+- **Wi-Fi and a cable?** bit-flow uses every link the two computers share at once (multipath), and
+  tells you when one change, like plugging one laptop into the router, would make it faster.
+- **App and game bundles** keep their symlinks, so copied macOS apps still launch.
 
 ### Measure your link
 
@@ -74,7 +77,8 @@ bitflow bench --loopback --sweep                         # this machine only: en
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--streams` | 8 | parallel TCP connections |
+| `--streams` | auto | parallel TCP connections; auto opens 16 and tunes how many carry data (4 → 8 → 16) |
+| `--compress` | auto | zstd per block: auto stays on while it pays off, `on`, `off` |
 | `--chunk` | 32MiB | work unit; files are split into chunks that streams pull from a shared queue |
 | `--block` | 4MiB | frame size on the wire |
 | `--raw` | off | unencrypted data streams (receiver needs `--allow-raw`) |

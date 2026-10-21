@@ -25,7 +25,7 @@ func newMeter(w io.Writer, total int64) *meter {
 	return &meter{w: w, total: total, start: now, lastT: now}
 }
 
-func (m *meter) update(done int64) {
+func (m *meter) update(done int64, extra string) {
 	now := time.Now()
 	if dt := now.Sub(m.lastT).Seconds(); dt > 0 {
 		inst := float64(done-m.lastB) / dt
@@ -47,6 +47,9 @@ func (m *meter) update(done int64) {
 	}
 	line := fmt.Sprintf("  %s / %s  %5.1f%%  %s  %s  ETA %s",
 		units.Bytes(done), units.Bytes(m.total), pct, bar(pct, 24), units.Rate(m.rate), eta)
+	if extra != "" {
+		line += "  · " + extra
+	}
 	pad := ""
 	if n := m.lastLen - len(line); n > 0 {
 		pad = strings.Repeat(" ", n)

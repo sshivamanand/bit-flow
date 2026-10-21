@@ -73,3 +73,18 @@ func TestPolicyParse(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestCheckLinks(t *testing.T) {
+	ok := []proto.FileEntry{{Path: "G", Dir: true}, {Path: "G/lib", Dir: true}, {Path: "G/lib/a.so.1"}, {Path: "G/lib/a.so", Link: "a.so.1"}}
+	if err := checkLinks(ok); err != nil {
+		t.Fatal(err)
+	}
+	escape := []proto.FileEntry{{Path: "G", Dir: true}, {Path: "G/etc", Link: "../../etc"}}
+	if checkLinks(escape) == nil {
+		t.Fatal("link out of the transfer accepted")
+	}
+	through := []proto.FileEntry{{Path: "G", Dir: true}, {Path: "G/d", Link: "sub"}, {Path: "G/sub", Dir: true}, {Path: "G/d/x"}}
+	if checkLinks(through) == nil {
+		t.Fatal("file written through a link accepted")
+	}
+}

@@ -26,10 +26,31 @@ type link interface {
 	// expect is called before the message that makes the peer open streams
 	// (the accept for a listening receiver, the offer for a listening sender).
 	expect(n int, allowRaw bool)
-	// streams returns n authenticated data connections. raw tells a dialing
-	// side which kind to open.
-	streams(ctx context.Context, n int, raw bool) ([]net.Conn, error)
+	// usePeerAddrs tells a dialing side the peer's other interfaces (multipath).
+	usePeerAddrs(addrs []proto.NetAddr)
+	// streams returns n authenticated data connections and the local link
+	// (interface label) each one uses. raw tells a dialing side which kind to open.
+	streams(ctx context.Context, n int, raw bool) ([]net.Conn, []string, error)
 	close()
+}
+
+// linkLabel names the local interface a connection leaves from.
+func linkLabel(c net.Conn, labels map[string]string) string {
+	if a, ok := c.LocalAddr().(*net.TCPAddr); ok {
+		if l := labels[a.IP.String()]; l != "" {
+			return l
+		}
+		return a.IP.String()
+	}
+	return ""
+}
+
+func labelMap() map[string]string {
+	m := map[string]string{}
+	for _, a := range localAddrs() {
+		m[a.IP] = a.Label
+	}
+	return m
 }
 
 // ---- dialing side ----
@@ -40,6 +61,7 @@ type dialLink struct {
 	paired  secure.Paired
 	id      *secure.Identity
 	sockBuf int
+	paths   []path // set by usePeerAddrs; empty means just addr
 }
 
 // dialControl opens, pairs and secures a control connection to addr.
@@ -79,8 +101,16 @@ func dialControl(ctx context.Context, addr, code string, id *secure.Identity, so
 func (l *dialLink) expect(int, bool) {}
 func (l *dialLink) close()           {}
 
-// streams dials n data connections in parallel and authenticates each one.
-func (l *dialLink) streams(ctx context.Context, n int, raw bool) ([]net.Conn, error) {
+func (l *dialLink) usePeerAddrs(addrs []proto.NetAddr) { l.paths = selectPaths(l.addr, addrs) }
+
+// streams dials n data connections in parallel, spread round-robin over the
+// available links, and authenticates each one. A link that can't be reached
+// is replaced by the primary one.
+func (l *dialLink) streams(ctx context.Context, n int, raw bool) ([]net.Conn, []string, error) {
+	paths := l.paths
+	if len(paths) == 0 {
+		paths = []path{{addr: l.addr}}
+	}
 	conns := make([]net.Conn, n)
 	var errs firstError
 	var wg sync.WaitGroup
@@ -88,7 +118,10 @@ func (l *dialLink) streams(ctx context.Context, n int, raw bool) ([]net.Conn, er
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c, err := dial(ctx, l.addr, l.sockBuf)
+			c, err := dial(ctx, paths[i%len(paths)].addr, l.sockBuf)
+			if err != nil && i%len(paths) != 0 {
+				c, err = dial(ctx, l.addr, l.sockBuf)
+			}
 			if err != nil {
 				errs.set(err)
 				return
@@ -127,9 +160,14 @@ func (l *dialLink) streams(ctx context.Context, n int, raw bool) ([]net.Conn, er
 				c.Close()
 			}
 		}
-		return nil, fmt.Errorf("open data streams: %w", err)
+		return nil, nil, fmt.Errorf("open data streams: %w", err)
 	}
-	return conns, nil
+	labels := labelMap()
+	names := make([]string, n)
+	for i, c := range conns {
+		names[i] = linkLabel(c, labels)
+	}
+	return conns, names, nil
 }
 
 // ---- listening side ----
@@ -323,9 +361,11 @@ func (l *hubLink) expect(n int, allowRaw bool) {
 	l.h.mu.Unlock()
 }
 
-func (l *hubLink) streams(ctx context.Context, n int, _ bool) ([]net.Conn, error) {
+func (l *hubLink) usePeerAddrs([]proto.NetAddr) {}
+
+func (l *hubLink) streams(ctx context.Context, n int, _ bool) ([]net.Conn, []string, error) {
 	if l.sink == nil {
-		return nil, errors.New("internal: streams before expect")
+		return nil, nil, errors.New("internal: streams before expect")
 	}
 	conns := make([]net.Conn, 0, n)
 	timeout := time.NewTimer(handshakeTimeout)
@@ -338,15 +378,20 @@ func (l *hubLink) streams(ctx context.Context, n int, _ bool) ([]net.Conn, error
 			for _, c := range conns {
 				c.Close()
 			}
-			return nil, errors.New("timed out waiting for data streams")
+			return nil, nil, errors.New("timed out waiting for data streams")
 		case <-ctx.Done():
 			for _, c := range conns {
 				c.Close()
 			}
-			return nil, context.Cause(ctx)
+			return nil, nil, context.Cause(ctx)
 		}
 	}
-	return conns, nil
+	labels := labelMap()
+	names := make([]string, n)
+	for i, c := range conns {
+		names[i] = linkLabel(c, labels)
+	}
+	return conns, names, nil
 }
 
 func (l *hubLink) close() {

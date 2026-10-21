@@ -136,13 +136,20 @@ Receiver : TCP stream i → TLS decrypt → [unzstd] → verify XXH3 → pwrite(
 flags: END (M1) · COMPRESSED | PACK (M2+; rawLen added with compression)
 ```
 
+### 4.6b Symlinks
+Relative symlinks that stay inside the sent item are part of the manifest (`FileEntry.Link`). macOS frameworks
+and Linux `.so` versions need them. The receiver refuses links that escape the transfer and any entry that
+would be written through a link, and creates links last. Windows skips links it isn't allowed to create.
+
 ### 4.7 Auto-tuner (the "brutally fast" part)
 A control loop runs every ~500 ms using receiver-side committed throughput:
-- **Streams**: start at 4 per path. Double while goodput improves by more than 5%. Back off if it drops. Cap at 32.
-- **Compression**: try zstd level 1 on a sample of each chunk and keep it only if the block shrinks below
-  ~90%. Turn compression off globally when the CPU, not the link, is the bottleneck (e.g. a Thunderbolt link).
-  Game assets are often already compressed, so this costs nothing when it doesn't help and wins
-  10–30% when it does.
+- **Streams** (built): 16 connections open at once, and a gate lets the first N carry data. N starts at 4 and doubles
+  while each step buys ≥ 8% more goodput over 1.5 s windows, then settles on the best. Idle connections cost nothing,
+  and every stream still ends with END, so the protocol didn't change.
+- **Compression** (built): zstd "fastest" per 4 MiB block, sent only if ≤ 90% of raw. Known-compressed
+  extensions and files whose first two blocks don't shrink are skipped. Windows of 64 MB saving < 5% pause it for
+  20 s. If goodput exceeds 60% of measured zstd capacity, it stops (CPU-bound, e.g. Thunderbolt). Measured on
+  Chrome.app: 49.5% fewer bytes. Incompressible blocks are rejected at ~9 GB/s, so trying is nearly free.
 - **Disk backpressure**: if the receiver's disk falls behind (hard drive, antivirus scanning), stop
   adding streams. More streams wouldn't help.
 

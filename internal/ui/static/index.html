@@ -90,6 +90,9 @@ section { margin-bottom: 38px; }
 .xfer:not(.running) .stat .v { font-size: 16px; color: var(--text); }
 .xacts { margin-left: auto; display: flex; gap: 4px; align-self: center; }
 .xnote { font-size: 13px; margin-top: 8px; overflow-wrap: anywhere; }
+.xnote.tip { color: var(--sub); }
+.xnote.tip::before { content: "tip  "; color: var(--accent); }
+.xhead .link { color: var(--sub); font-size: 12.5px; white-space: nowrap; }
 
 footer { color: var(--sub); font-size: 12px; text-align: center; padding: 18px 24px 26px; }
 footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; padding: 1px 6px; font: inherit; }
@@ -357,19 +360,22 @@ function renderXfers(s) {
     if (x.state === "running") {
       const [rv, ru] = bytes(x.rate || 0, true);
       stats = stat(Math.floor(pct) + "<small>%</small>", "progress") + stat(rv + "<small> " + ru + "/s</small>", "speed") +
-        stat(dur(left), "left") + stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
+        stat(dur(left), "left") + stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved") +
+        (x.streams ? stat(x.streams, "streams") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "");
     } else if (x.state === "done") {
       stats = stat(bytes(x.total), x.files + (x.files === 1 ? " file" : " files")) + (x.rate > 0 ? stat(bytes(x.rate) + "/s", "average") : "") +
-        (x.already ? stat(bytes(x.already), "already there") : "") + stat(dur((new Date(x.finished) - new Date(x.started)) / 1000), "time");
+        (x.already ? stat(bytes(x.already), "already there") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "") +
+        stat(dur((new Date(x.finished) - new Date(x.started)) / 1000), "time");
     } else stats = stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
     return `<div class="xfer ${esc(x.state)}">
       <div class="xhead"><span class="arrow">${x.dir === "in" ? "↓" : "↑"}</span><span class="name">${esc(x.name)}</span>
-        <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span><span class="state">${esc(label)}</span></div>
+        <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span>${x.link ? `<span class="link">via ${esc(x.link.toLowerCase())}</span>` : ""}<span class="state">${esc(label)}</span></div>
       <div class="bar ${x.state === "waiting" ? "waiting" : ""}"><div class="fill" style="width:${pct.toFixed(1)}%"></div></div>
       <div class="stats">${stats}<span class="xacts">
         ${live ? `<button data-cancel="${esc(x.id)}">stop</button>` : ""}
         ${x.state === "done" && x.dir === "in" && x.dest ? `<button data-reveal="${esc(x.dest)}">show</button>` : ""}</span></div>
       ${x.retrying ? `<div class="xnote err">${esc(x.retrying)}</div>` : ""}
+      ${live ? (x.tips || []).map((t) => `<div class="xnote tip">${esc(t)}</div>`).join("") : ""}
       ${x.error && x.state !== "declined" ? `<div class="xnote err">${esc(x.error)}</div>` : ""}
     </div>`;
   }).join("");

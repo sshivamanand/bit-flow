@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sshivamanand/bit-flow/internal/planner"
 	"github.com/sshivamanand/bit-flow/internal/proto"
 )
 
@@ -138,6 +139,9 @@ func Prepare(root string, entries []proto.FileEntry, opts Options) (*Plan, error
 		p.renames = topLevelRenames(root, entries)
 	}
 
+	if err := checkLinks(entries); err != nil {
+		return nil, err
+	}
 	seen := make(map[string]bool, len(entries))
 	var conflicts []string
 	for i, e := range entries {
@@ -150,7 +154,7 @@ func Prepare(root string, entries []proto.FileEntry, opts Options) (*Plan, error
 			return nil, fmt.Errorf("duplicate path in offer: %q", e.Path)
 		}
 		seen[dst] = true
-		if e.Size < 0 || (e.Dir && e.Size != 0) {
+		if e.Size < 0 || ((e.Dir || e.Link != "") && e.Size != 0) {
 			return nil, fmt.Errorf("invalid size for %q", e.Path)
 		}
 		st := &p.files[i]
@@ -165,6 +169,16 @@ func Prepare(root string, entries []proto.FileEntry, opts Options) (*Plan, error
 		}
 		if e.Dir {
 			if !info.IsDir() {
+				conflicts = append(conflicts, rel)
+			}
+			continue
+		}
+		if e.Link != "" {
+			if t, err := os.Readlink(dst); err == nil && t == filepath.FromSlash(e.Link) && opts.Policy != PolicyOverwrite {
+				st.skip, st.done = true, true
+			} else if opts.Policy == PolicySkip {
+				st.skip, st.done = true, true
+			} else if opts.Policy != PolicyOverwrite || info.IsDir() {
 				conflicts = append(conflicts, rel)
 			}
 			continue
@@ -333,6 +347,9 @@ func (p *Plan) Materialize() error {
 		if err := os.MkdirAll(filepath.Dir(st.final), 0o755); err != nil {
 			return err
 		}
+		if st.entry.Link != "" {
+			continue // created by Finish, after every file is in place
+		}
 		if st.entry.Size == 0 {
 			if err := st.writeWhole(nil); err != nil {
 				return err
@@ -450,7 +467,7 @@ func (p *Plan) file(idx uint32) (*fileState, error) {
 		return nil, fmt.Errorf("data for unknown file #%d", idx)
 	}
 	st := &p.files[idx]
-	if st.entry.Dir || st.skip {
+	if st.entry.Dir || st.entry.Link != "" || st.skip {
 		return nil, fmt.Errorf("unexpected data for %q", st.entry.Path)
 	}
 	return st, nil
@@ -485,8 +502,13 @@ func (p *Plan) Finish() error {
 	var missing []string
 	for i := range p.files {
 		st := &p.files[i]
-		if !st.entry.Dir && !st.done {
+		if !st.entry.Dir && st.entry.Link == "" && !st.done {
 			missing = append(missing, st.entry.Path)
+		}
+	}
+	if len(missing) == 0 {
+		if err := p.makeLinks(); err != nil {
+			return err
 		}
 	}
 	if len(missing) > 0 {
@@ -504,6 +526,61 @@ func (p *Plan) Finish() error {
 		if st.entry.MTime != 0 {
 			t := time.Unix(0, st.entry.MTime)
 			_ = os.Chtimes(st.final, t, t)
+		}
+	}
+	return nil
+}
+
+// makeLinks creates the transfer's symlinks. It runs last, so no data is ever
+// written through a link.
+func (p *Plan) makeLinks() error {
+	for i := range p.files {
+		st := &p.files[i]
+		if st.entry.Link == "" || st.done {
+			continue
+		}
+		if p.opts.Policy == PolicyOverwrite {
+			if info, err := os.Lstat(st.final); err == nil && !info.IsDir() {
+				_ = os.Remove(st.final)
+			}
+		}
+		if err := os.Symlink(filepath.FromSlash(st.entry.Link), st.final); err != nil {
+			if runtime.GOOS == "windows" {
+				continue // needs Developer Mode or admin rights; the rest of the transfer is fine
+			}
+			return fmt.Errorf("create link %q: %w", st.entry.Path, err)
+		}
+		st.done = true
+	}
+	return nil
+}
+
+// checkLinks rejects symlinks that point outside the transfer, and any entry
+// that would be written through a link.
+func checkLinks(entries []proto.FileEntry) error {
+	links := map[string]bool{}
+	for _, e := range entries {
+		if e.Link == "" {
+			continue
+		}
+		if e.Dir || !planner.LinkInside(e.Path, e.Link) {
+			return fmt.Errorf("unsafe link %q -> %q", e.Path, e.Link)
+		}
+		links[e.Path] = true
+	}
+	if len(links) == 0 {
+		return nil
+	}
+	for _, e := range entries {
+		for dir := e.Path; ; {
+			i := strings.LastIndex(dir, "/")
+			if i < 0 {
+				break
+			}
+			dir = dir[:i]
+			if links[dir] {
+				return fmt.Errorf("unsafe path %q: inside link %q", e.Path, dir)
+			}
 		}
 	}
 	return nil

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/sshivamanand/bit-flow/internal/proto"
 )
@@ -17,7 +19,7 @@ type Manifest struct {
 	Files   []proto.FileEntry
 	Sources []string
 	Total   int64
-	Skipped []string // symlinks, devices, sockets: not sent
+	Skipped []string // devices, sockets, and symlinks pointing outside what's sent
 }
 
 // Build walks each path. A directory "…/Game" becomes entries "Game", "Game/…";
@@ -81,6 +83,16 @@ func (m *Manifest) add(src, name string, info fs.FileInfo) {
 	case info.Mode().IsRegular():
 		e.Size = info.Size()
 		m.Total += e.Size
+	case info.Mode()&fs.ModeSymlink != 0:
+		// App and game bundles rely on relative symlinks (macOS frameworks,
+		// Linux .so versions). Links that leave what's being sent can't work
+		// on the other computer, so they're skipped.
+		target, err := os.Readlink(src)
+		if err != nil || !LinkInside(name, filepath.ToSlash(target)) {
+			m.Skipped = append(m.Skipped, src)
+			return
+		}
+		e.Link = filepath.ToSlash(target)
 	default:
 		m.Skipped = append(m.Skipped, src)
 		return
@@ -89,7 +101,18 @@ func (m *Manifest) add(src, name string, info fs.FileInfo) {
 	m.Sources = append(m.Sources, src)
 }
 
-// FileCount is the number of regular files (not directories).
+// LinkInside reports whether a symlink at name (slash-separated, relative to
+// the transfer root) with the given target stays inside its top-level item.
+func LinkInside(name, target string) bool {
+	if target == "" || path.IsAbs(target) || strings.Contains(target, "\\") {
+		return false
+	}
+	top, _, _ := strings.Cut(name, "/")
+	resolved := path.Clean(path.Join(path.Dir(name), target))
+	return resolved == top || strings.HasPrefix(resolved, top+"/")
+}
+
+// FileCount is the number of regular files and links (not directories).
 func (m *Manifest) FileCount() int {
 	n := 0
 	for _, f := range m.Files {

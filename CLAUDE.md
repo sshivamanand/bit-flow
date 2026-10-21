@@ -53,7 +53,8 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
 | `internal/secure` | Pairing (CPace PAKE over a 6-digit code), ephemeral TLS identities, fingerprint pinning, raw-mode stream tokens. |
 | `internal/planner` | Sender side: walk paths → `Manifest`; split into work `Unit`s (32 MiB chunks of big files, packs of small files), honoring resume info. |
 | `internal/store` | Receiver side: path safety, conflict policy, preallocation, out-of-order `WriteAt`, packs, `.bitflow-partial` + rename, resume journal, free-space checks. |
-| `internal/transfer` | The engine: `Sender` / `Receiver`, control session, N data streams, pipelines, retries. |
+| `internal/transfer` | The engine: `Sender` / `Receiver`, control session, N data streams, pipelines, retries, compression (`compress.go`), stream gate + tuner (`tuner.go`), multipath (`paths.go`). |
+| `internal/advisor` | Plain-English advice from the route (double air hop, multipath, cable, client isolation). |
 | `internal/netinfo` | Interface listing with friendly labels (Wi-Fi, Ethernet, Thunderbolt Bridge). |
 | `internal/discovery` | Find peers: UDP multicast + broadcast query, unicast answers, TCP /24 probe fallback, name lookup. |
 | `internal/config` | Device ID, name, default folder, conflict policy (`config.json` in the user config dir; `BITFLOW_CONFIG_DIR` overrides it). |
@@ -80,7 +81,11 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
   exists with the right size/mtime is treated as done by resume logic, so never rename early.
 - **The resume journal must never claim bytes that aren't durable.** Checkpoints snapshot ranges, then
   fsync, then atomically write the journal.
-- **Checksums are verified before `WriteAt`.** Blocks are hashed raw (before compression).
+- **Checksums are verified before `WriteAt`.** Blocks are hashed raw (before compression); compressed frames
+  carry `RawLen`, which must be ≤ the block size and match the decompressed length.
+- **Symlinks are created last and never written through** (`store.checkLinks`). Never relax `planner.LinkInside`.
+- **Any network probe of an extra path needs a short timeout.** Some networks drop instead of refuse;
+  a 10 s dial on a dead path once added 8 s to every transfer.
 - **Pipelines use bounded channels and pooled buffers.** No unbounded queues or per-block allocations on
   the hot path. Buffers carry `FrameHeaderSize` bytes of headroom so header+payload go out in one write.
 - **Cancellation:** one `context.WithCancelCause` per session; any stream error cancels the session,
@@ -92,8 +97,8 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
   under `[data-theme=…]`), big numbers with small muted labels, keyboard shortcuts. No external fonts, scripts or
   CDNs: the app must work offline on a LAN. Keep `index.html` a single self-contained file.
 
-- Go standard library first. Current deps: `zeebo/xxh3`, `filippo.io/cpace`, `golang.org/x/sys`,
-  `golang.org/x/net` (multicast). Native dialogs shell out to the OS (no zenity). Justify any new dependency (speed, correctness, or pure-Go portability). Builds
+- Go standard library first. Current deps: `zeebo/xxh3`, `filippo.io/cpace`, `klauspost/compress` (zstd),
+  `golang.org/x/sys`, `golang.org/x/net` (multicast). Native dialogs shell out to the OS (no zenity). Justify any new dependency (speed, correctness, or pure-Go portability). Builds
   must stay `CGO_ENABLED=0` for all six targets.
 - Per-OS code goes in `_darwin.go` / `_linux.go` / `_windows.go` / `_other.go` files with matching build
   constraints, never `runtime.GOOS` switches on hot paths.

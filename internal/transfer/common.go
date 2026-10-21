@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	DefaultStreams   = 8
 	DefaultChunkSize = 32 << 20
 	DefaultBlockSize = 4 << 20
 	DefaultRetries   = 10
@@ -67,14 +66,16 @@ func IsPermanent(err error) bool {
 }
 
 // bufPool recycles frame buffers so steady-state transfers allocate nothing.
-// Each buffer has FrameHeaderSize bytes of headroom so a frame goes out in one write.
+// Each buffer has FrameHeaderSize bytes of headroom so a frame goes out in one
+// write, and slack beyond the block for zstd's worst-case output.
 type bufPool struct {
 	p sync.Pool
 }
 
 func newBufPool(blockSize int) *bufPool {
+	size := proto.FrameHeaderSize + blockSize + blockSize/64 + 1024
 	bp := &bufPool{}
-	bp.p.New = func() any { b := make([]byte, proto.FrameHeaderSize+blockSize); return &b }
+	bp.p.New = func() any { b := make([]byte, size); return &b }
 	return bp
 }
 

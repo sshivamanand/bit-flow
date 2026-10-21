@@ -109,5 +109,15 @@ M4 results (Apple M4, 2026-10-21):
 M5 results (2026-10-21): a 31 MB phone-page upload arrived byte-exact. The installer installed a working
 binary. A game update re-sent only the one changed file (300 KB of a 3.3 MB game). E2E suite now at 23 checks.
 
-### M6 — Polish
-- Releases (goreleaser), transfer history, settings, dark mode.
+### M6 — Polish ✅
+- CI (GitHub Actions): vet + race tests on macOS and Linux, Windows tests (informational), gofmt, vet for every
+  OS, cross-compile. Release workflow: a `v*` tag runs goreleaser → archives for 6 platforms + checksums.
+- `bitflow history`: one log (`history.jsonl`, append-only) for CLI sends/receives, app transfers and phone uploads.
+- `bitflow config [name|dest|on_conflict VALUE]`; `recv` falls back to the configured folder and policy.
+- Themes (dark: flow/ember/violet, light: paper), README screenshot.
+
+## Still to do (needs two real laptops)
+- Run `bitflow bench --to <ip> --sweep` and a real game transfer over Wi‑Fi, Wi‑Fi + Ethernet, and a
+  Thunderbolt cable, and record the numbers here (link ceiling vs. bit-flow).
+- Run the suite on a Windows machine (CI runs it, but nobody has tried the app, dialogs and Steam paths
+  on Windows hardware yet).

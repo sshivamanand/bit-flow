@@ -24,6 +24,8 @@ Usage:
   bitflow send  --steam GAME [--to NAME|HOST]     send an installed Steam game into their library
   bitflow games                                  list installed Steam games
   bitflow peers                                  list bit-flow devices on this network
+  bitflow history                                past transfers (CLI and app)
+  bitflow config [name|dest|on_conflict VALUE]   show or change settings
   bitflow bench (--loopback | --to NAME|HOST --code CODE) [--size 10GB] [--sweep] [--raw]
   bitflow ifaces
   bitflow version
@@ -53,6 +55,10 @@ func main() {
 		err = cmdBench(ctx, args)
 	case "games":
 		err = cmdGames(args)
+	case "history":
+		err = cmdHistory(args)
+	case "config":
+		err = cmdConfig(args)
 	case "peers", "scan":
 		err = cmdPeers(ctx, args)
 	case "ifaces", "interfaces":

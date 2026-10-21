@@ -10,7 +10,8 @@ that *listens* is usually the receiver, but in `send --wait` / `recv --from` mod
 roles (who sends files) are independent of who dials. The dialer is always the PAKE "dialer" and the TLS client.
 
 Browsers share the port: a connection whose first four bytes are an HTTP method (`GET `, `POST`, `PUT `, …)
-goes to the web server, and `BFLW` goes to the protocol below (`internal/web.Split`).
+goes to the web server, and `BFLW` goes to the protocol below (`internal/web.Split`). The browser room
+is described [at the end](#the-room-browsers).
 
 ## Hello (24 bytes, every connection)
 
@@ -129,3 +130,35 @@ answers, scanners probe every address of each local /24 over TCP with a Hello of
 written as snapshot → fsync → atomic rename every 3 s and when a transfer stops. The key hashes the
 destination plus each **file's** path, size, mtime and link target. Directories are excluded because their
 mtimes change on their own.
+
+## The room (browsers)
+
+Browsers don't speak the protocol above. The room (`internal/web/room.go`) is plain HTTP on the same port.
+
+**WebSocket `GET /room/ws`** (same-`Origin` only) carries presence, pairing and progress as JSON objects with
+a `type` field. No file data goes over it.
+
+| From | Type | Fields | Meaning |
+|---|---|---|---|
+| page | `hello` | `name`, `key`, `kind` | first message; `key` from an earlier `welcome` rejoins the same seat (30 s grace) |
+| server | `welcome` | `id`, `key`, `code`, `name`, `kind` | your identity, secret key and 6-digit code |
+| server | `roster` | `members[]`: `id`, `name`, `kind`, `paired`, `online` | everyone else; `paired` = you can send without a code |
+| page | `rename` | `name` | server answers `name` (it may add a number to keep names unique) |
+| page | `offer` | `to`, `code`, `files[]`: `name`, `size` | ask to send; `code` is ignored once paired |
+| server | `offered` / `offer-error` | `xfer`, `to` / `to`, `error` | to the sender |
+| server | `incoming` | `xfer`, `from`, `fromName`, `files`, `total` | to the receiver |
+| server | `code` | `code` | your code changed after 5 wrong guesses |
+| server | `accepted`, `progress`, `done`, `declined`, `cancelled`, `failed` | `xfer`, `bytes`, `total`, `error` | to both sides |
+| page | `decline`, `cancel` | `xfer` | |
+| page / server | `ping` / `pong` | | every 25 s; a socket idle for 75 s is dropped |
+
+**Data.** Both requests carry the tab's key as `?k=`.
+
+- `GET /room/dl/{xfer}`: the receiver's download, and opening it is what accepts the offer. One file is sent
+  as itself (`Content-Length` set); several are a store-only zip built on the fly. Only one download per transfer.
+- `PUT /room/up/{xfer}/{i}` (needs `X-Bitflow: 1`): the sender uploads file `i`, in order, after `accepted`.
+  The server copies the body straight into the download, never more than the offered size, and answers when
+  that file is through. A cancel on either side cuts both requests.
+
+`GET /room/qr` is an SVG QR code of the page's own address.
+

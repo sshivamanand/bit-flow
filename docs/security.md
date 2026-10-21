@@ -57,10 +57,23 @@ The app's interface listens on `127.0.0.1` only, so other machines can't reach i
 
 The browser pages on port 7700 are reachable by anyone on your network:
 
-- **Public:** the landing page and the bit-flow downloads (`/get`).
+- **Public:** the landing page, the bit-flow downloads (`/get`), and joining the room.
 - **Needs the pairing code:** uploading files to the computer, or downloading what `send --wait` offers.
   Wrong codes count against the same 5-try limit and penalty as computer pairing.
 - Uploads go through the same path checks and never overwrite.
+
+**The room** (browser to browser, see [Phones & browsers](phones.md)):
+
+- Anyone on the network can join and see the device list (names and device types). That's the point.
+- Sending to a device needs **that device's own code**, shown only on its screen. Every wrong guess waits
+  1 s, and 5 wrong guesses give it a new code (and forget who it was paired with). The receiver still has
+  to accept each transfer.
+- Each tab gets a random 128-bit key from the server over its WebSocket. Uploads and downloads must carry
+  it, and only the transfer's sender may upload and only its receiver may download, once.
+- The WebSocket only accepts connections whose `Origin` is the page itself, so another website open in
+  someone's browser can't join the room as them.
+- **The host computer relays the bytes** (nothing is written to its disk) and could read them. You're
+  trusting whoever runs the room.
 - **Browser traffic is plain HTTP.** Browsers can't use bit-flow's pinned keys, so on a shared network
   someone could watch phone uploads and downloads, including the code typed into the page. Prefer the
   app between computers for anything sensitive. Change the code by restarting `recv`, or run it with

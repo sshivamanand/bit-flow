@@ -62,7 +62,8 @@ type Server struct {
 }
 
 type server struct {
-	o Options
+	o    Options
+	room *room
 
 	mu       sync.Mutex
 	sessions map[string]time.Time
@@ -84,7 +85,7 @@ type upload struct {
 
 // NewServer returns the server for browser requests.
 func NewServer(o Options) *Server {
-	s := &server{o: o, sessions: map[string]time.Time{}, uploads: map[string]*upload{}}
+	s := &server{o: o, room: newRoom(), sessions: map[string]time.Time{}, uploads: map[string]*upload{}}
 	srv := &Server{s: s, stop: make(chan struct{})}
 	go srv.reap()
 	mux := http.NewServeMux()
@@ -98,6 +99,11 @@ func NewServer(o Options) *Server {
 	mux.HandleFunc("PUT /web/upload/{id}", s.auth(s.putChunk))
 	mux.HandleFunc("GET /web/list", s.auth(s.list))
 	mux.HandleFunc("GET /web/dl/{i}", s.auth(s.download))
+	// The room: every browser on the network, sending to each other.
+	mux.Handle("GET /room/ws", s.room.wsHandler())
+	mux.HandleFunc("GET /room/dl/{id}", s.room.download)
+	mux.HandleFunc("PUT /room/up/{id}/{i}", s.room.upload)
+	mux.HandleFunc("GET /room/qr", s.qr)
 	srv.Handler = securityHeaders(mux)
 	return srv
 }
@@ -147,9 +153,25 @@ func securityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:")
+		// Older Safari doesn't count ws:// as 'self', so the room's socket is named explicitly.
+		connect := "'self'"
+		if hostOK(r.Host) {
+			connect += " ws://" + r.Host
+		}
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src "+connect+"; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:")
 		h.ServeHTTP(w, r)
 	})
+}
+
+// qr is an SVG QR code of this page's address, so others can join by scanning.
+func (s *server) qr(w http.ResponseWriter, r *http.Request) {
+	if !hostOK(r.Host) {
+		http.Error(w, "bad host", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(SVGQR("http://" + r.Host)))
 }
 
 func (s *server) index(w http.ResponseWriter, r *http.Request) {

@@ -116,6 +116,20 @@ binary. A game update re-sent only the one changed file (300 KB of a 3.3 MB game
 - `bitflow config [name|dest|on_conflict VALUE]`; `recv` falls back to the configured folder and policy.
 - Themes (dark: flow/ember/violet, light: paper), README screenshot.
 
+### M7 — The room ✅
+- Any browser ↔ any browser on the Wi‑Fi, through whichever computer runs bit-flow (`internal/web/room.go`).
+  Live device list over a WebSocket, a 6-digit code per tab (1 s per wrong guess, rotated after 5), accept
+  prompt, pairing remembered both ways after one transfer, unique names, 30 s grace on reconnect.
+- Data: sender `PUT`s each file, receiver's single download (zip for several) is fed straight from it. No temp
+  file and nothing held in page memory, so big files work on phones. Cancel cuts both requests.
+- Room page (`page.html`) keeps the host's code-protected upload/download and `/get`; invite QR (`/room/qr`).
+  The app's phone panel links to it.
+
+M7 results (Apple M4, 2026-10-21): 9 room tests (roster, origin check, wrong code + rotation, single file +
+pairing, zip + key checks, decline, cancel mid-file, reconnect, unique names) pass 20× under `-race`. Checked in
+a real browser: two tabs, wrong code, right code, accept, a 3 MB two-file zip delivered, reply without a code,
+decline, and a 375 px phone viewport.
+
 ## Still to do (needs two real laptops)
 - Run `bitflow bench --to <ip> --sweep` and a real game transfer over Wi‑Fi, Wi‑Fi + Ethernet, and a
   Thunderbolt cable, and record the numbers here (link ceiling vs. bit-flow).

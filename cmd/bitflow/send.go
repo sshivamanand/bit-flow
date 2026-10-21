@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sshivamanand/bit-flow/internal/advisor"
 	"github.com/sshivamanand/bit-flow/internal/awake"
 	"github.com/sshivamanand/bit-flow/internal/config"
 	"github.com/sshivamanand/bit-flow/internal/discovery"
@@ -56,12 +57,15 @@ func cmdSend(ctx context.Context, args []string) error {
 		fmt.Printf("\n⟳ %v\n  reconnecting in %s (attempt %d of %d)…\n", err, wait, attempt, *retries)
 	}
 
-	addr := ""
+	addr, found := "", ""
 	switch {
 	case *wait:
 	case *to != "":
 		if addr, err = resolve(ctx, *to, discovery.RoleReceive, cfg); err != nil {
 			return err
+		}
+		if !looksLikeAddress(*to) {
+			found = *to
 		}
 	default:
 		fmt.Println("Looking for receivers…")
@@ -71,7 +75,7 @@ func cmdSend(ctx context.Context, args []string) error {
 		}
 		if p != nil {
 			fmt.Printf("Found %s (%s)\n", p.Name, p.Addrs[0])
-			addr = p.Addr()
+			addr, found = p.Addr(), p.Name
 		} else {
 			fmt.Println("No receiver found, so this computer will wait for one to fetch the files.")
 		}
@@ -92,6 +96,14 @@ func cmdSend(ctx context.Context, args []string) error {
 		stop := watchSender(s)
 		res, err = s.Send(ctx, addr, m)
 		stop()
+		if err != nil && found != "" && !s.Stats().Accepted && strings.Contains(err.Error(), "connect to") {
+			return fmt.Errorf("%w\n\n%s", err, advisor.Unreachable(found))
+		}
+		if err == nil {
+			if st := s.Stats(); st.Saved > 0 {
+				defer fmt.Printf("  compression kept %s off the wire\n", units.Bytes(st.Saved))
+			}
+		}
 	}
 	if err != nil {
 		return err
@@ -240,7 +252,11 @@ func cmdBench(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("  %2d streams   %s\n", n, summary(res.Bytes, res.Elapsed))
+		label := fmt.Sprintf("%2d streams", n)
+		if n == 0 {
+			label = fmt.Sprintf("auto (%d)", s.Stats().Streams)
+		}
+		fmt.Printf("  %-10s   %s\n", label, summary(res.Bytes, res.Elapsed))
 	}
 	return nil
 }

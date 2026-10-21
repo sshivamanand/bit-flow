@@ -363,7 +363,7 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, lk link) (r
 			return res, sendErr(err, true)
 		}
 	}
-	accept := proto.Accept{OK: true, Raw: raw, Dest: info.Dest, Already: info.Already}
+	accept := proto.Accept{OK: true, Raw: raw, Dest: info.Dest, Already: info.Already, Addrs: localAddrs()}
 	if plan != nil {
 		accept.Skip, accept.Have = plan.Skip(), plan.Have()
 	}
@@ -386,10 +386,16 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, lk link) (r
 		cancel(errors.New("sender disconnected"))
 	}()
 
-	conns, err := lk.streams(ctx, offer.Streams, raw)
+	lk.usePeerAddrs(offer.Addrs)
+	conns, _, err := lk.streams(ctx, offer.Streams, raw)
 	if err != nil {
 		return res, sendErr(err, false)
 	}
+	dec, err := newDecompressor(offer.BlockSize)
+	if err != nil {
+		return res, sendErr(err, false)
+	}
+	defer dec.close()
 	for _, c := range conns {
 		defer c.Close()
 		defer closeOnDone(ctx, c)()
@@ -427,7 +433,7 @@ func (r *Receiver) runSession(parent context.Context, ctrl net.Conn, lk link) (r
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := recvStream(ctx, cancel, c, &offer, plan, small, s, pool); err != nil {
+			if err := recvStream(ctx, cancel, c, &offer, plan, small, s, pool, dec); err != nil {
 				cancel(err)
 			}
 		}()
@@ -473,7 +479,7 @@ type inBlock struct {
 
 // recvStream runs one data stream: this goroutine reads frames off the socket
 // while a writer goroutine verifies and writes them to disk.
-func recvStream(ctx context.Context, cancel context.CancelCauseFunc, conn net.Conn, offer *proto.Offer, plan *store.Plan, small *smallWriter, s *session, pool *bufPool) error {
+func recvStream(ctx context.Context, cancel context.CancelCauseFunc, conn net.Conn, offer *proto.Offer, plan *store.Plan, small *smallWriter, s *session, pool *bufPool, dec *decompressor) error {
 	ch := make(chan inBlock, pipelineDepth)
 	writerDone := make(chan struct{})
 	go func() {
@@ -481,7 +487,7 @@ func recvStream(ctx context.Context, cancel context.CancelCauseFunc, conn net.Co
 		failed := false
 		for b := range ch {
 			if !failed {
-				if err := commit(b, offer, plan, small, s); err != nil {
+				if err := commit(b, offer, plan, small, s, pool, dec); err != nil {
 					failed = true
 					cancel(err) // closes every connection, unblocking all readers
 				}
@@ -522,8 +528,23 @@ func recvStream(ctx context.Context, cancel context.CancelCauseFunc, conn net.Co
 	}
 }
 
-func commit(b inBlock, offer *proto.Offer, plan *store.Plan, small *smallWriter, s *session) error {
+func commit(b inBlock, offer *proto.Offer, plan *store.Plan, small *smallWriter, s *session, pool *bufPool, dec *decompressor) error {
 	data := (*b.buf)[:b.h.Len]
+	if b.h.Flags&proto.FlagCompressed != 0 {
+		if b.h.RawLen == 0 || int(b.h.RawLen) > offer.BlockSize {
+			return fmt.Errorf("bad decompressed length %d", b.h.RawLen)
+		}
+		rbuf := pool.get()
+		defer pool.put(rbuf)
+		out, err := dec.dec.DecodeAll(data, (*rbuf)[:0])
+		if err != nil {
+			return fmt.Errorf("decompress: %w", err)
+		}
+		if len(out) != int(b.h.RawLen) {
+			return fmt.Errorf("decompressed %d bytes, expected %d", len(out), b.h.RawLen)
+		}
+		data = out
+	}
 	if !offer.NoHash && proto.Checksum(data) != b.h.Sum {
 		return fmt.Errorf("checksum mismatch in file #%d at offset %d", b.h.File, b.h.Offset)
 	}

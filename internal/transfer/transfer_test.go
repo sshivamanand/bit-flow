@@ -75,6 +75,9 @@ func makeGame(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(src, "saves", "empty-dir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Bundles use relative symlinks: one to a file, one to a directory.
+	must(t, os.Symlink("big.pak", filepath.Join(src, "current.pak")))
+	must(t, os.Symlink("data/deep", filepath.Join(src, "levels")))
 	return src
 }
 
@@ -87,6 +90,13 @@ func assertSameTree(t *testing.T, src, dst string) {
 		}
 		rel, _ := filepath.Rel(src, path)
 		got := filepath.Join(dst, rel)
+		if d.Type()&fs.ModeSymlink != 0 {
+			want, _ := os.Readlink(path)
+			if have, err := os.Readlink(got); err != nil || have != want {
+				t.Errorf("link %s -> %q, want %q (%v)", rel, have, want, err)
+			}
+			return nil
+		}
 		gi, err := os.Stat(got)
 		if err != nil {
 			t.Errorf("missing %s", rel)

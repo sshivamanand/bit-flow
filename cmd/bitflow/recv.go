@@ -91,7 +91,7 @@ func cmdRecv(ctx context.Context, args []string) error {
 		mu.Lock()
 		defer mu.Unlock()
 		release = awake.Hold()
-		stopMeter = runMeter(o.Total, func() int64 { return r.Stats().Received })
+		stopMeter = runMeter(o.Total, func() int64 { return r.Stats().Received }, nil)
 	}
 	r.OnDone = func(o *proto.Offer, res transfer.Result, err error) {
 		mu.Lock()

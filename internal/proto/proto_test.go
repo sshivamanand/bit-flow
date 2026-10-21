@@ -28,7 +28,7 @@ func TestHelloRejectsStranger(t *testing.T) {
 }
 
 func TestFrameHeaderRoundTrip(t *testing.T) {
-	in := FrameHeader{File: 42, Offset: 1 << 40, Len: 4 << 20, Flags: FlagEnd, Sum: Checksum([]byte("hello"))}
+	in := FrameHeader{File: 42, Offset: 1 << 40, Len: 1 << 20, RawLen: 4 << 20, Flags: FlagEnd | FlagCompressed, Sum: Checksum([]byte("hello"))}
 	var b [FrameHeaderSize]byte
 	in.Put(b[:])
 	if out := ParseFrameHeader(b[:]); out != in {

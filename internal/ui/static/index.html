@@ -7,12 +7,12 @@
 <style>
 /* Themes. Monospace everything, quiet chrome, one accent colour. */
 :root, [data-theme="flow"] {
-  --bg: #15171c; --bg2: #1d2027; --bg3: #262a33;
-  --text: #dfe3ea; --sub: #5b6271; --accent: #2ee6c5; --error: #ff6b7a;
+  --bg: #161816; --bg2: #1e211e; --bg3: #2a2e2a;
+  --text: #e2e4e0; --sub: #5e635e; --accent: #b7e35a; --error: #ff6b6b;
 }
 [data-theme="ember"]  { --bg: #1c1715; --bg2: #26201c; --bg3: #322a24; --text: #ecdfcf; --sub: #7d6b5c; --accent: #ff9248; --error: #ff5f5f; }
 [data-theme="violet"] { --bg: #16141d; --bg2: #1f1c29; --bg3: #2a2637; --text: #e7e2f6; --sub: #6c6587; --accent: #b69bff; --error: #ff7aa8; }
-[data-theme="paper"]  { --bg: #f1eee8; --bg2: #e6e2da; --bg3: #dad5cb; --text: #2b2925; --sub: #9b958a; --accent: #0f8a7e; --error: #c43d3d; }
+[data-theme="paper"]  { --bg: #f1eee8; --bg2: #e6e2da; --bg3: #dad5cb; --text: #2b2925; --sub: #9b958a; --accent: #b4531d; --error: #c43d3d; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
@@ -90,6 +90,9 @@ section { margin-bottom: 38px; }
 .xfer:not(.running) .stat .v { font-size: 16px; color: var(--text); }
 .xacts { margin-left: auto; display: flex; gap: 4px; align-self: center; }
 .xnote { font-size: 13px; margin-top: 8px; overflow-wrap: anywhere; }
+.xnote.tip { color: var(--sub); }
+.xnote.tip::before { content: "tip  "; color: var(--accent); }
+.xhead .link { color: var(--sub); font-size: 12.5px; white-space: nowrap; }
 
 footer { color: var(--sub); font-size: 12px; text-align: center; padding: 18px 24px 26px; }
 footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; padding: 1px 6px; font: inherit; }
@@ -249,7 +252,7 @@ footer kbd { background: var(--bg2); color: var(--text); border-radius: 4px; pad
 "use strict";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const THEMES = {flow: "#2ee6c5", ember: "#ff9248", violet: "#b69bff", paper: "#0f8a7e"};
+const THEMES = {flow: "#b7e35a", ember: "#ff9248", violet: "#b69bff", paper: "#b4531d"};
 let state = null, me = null;
 
 async function api(path, body) {
@@ -357,19 +360,22 @@ function renderXfers(s) {
     if (x.state === "running") {
       const [rv, ru] = bytes(x.rate || 0, true);
       stats = stat(Math.floor(pct) + "<small>%</small>", "progress") + stat(rv + "<small> " + ru + "/s</small>", "speed") +
-        stat(dur(left), "left") + stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
+        stat(dur(left), "left") + stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved") +
+        (x.streams ? stat(x.streams, "streams") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "");
     } else if (x.state === "done") {
       stats = stat(bytes(x.total), x.files + (x.files === 1 ? " file" : " files")) + (x.rate > 0 ? stat(bytes(x.rate) + "/s", "average") : "") +
-        (x.already ? stat(bytes(x.already), "already there") : "") + stat(dur((new Date(x.finished) - new Date(x.started)) / 1000), "time");
+        (x.already ? stat(bytes(x.already), "already there") : "") + (x.saved > 0 ? stat(bytes(x.saved), "zstd saved") : "") +
+        stat(dur((new Date(x.finished) - new Date(x.started)) / 1000), "time");
     } else stats = stat(bytes(x.done) + "<small> / " + bytes(x.total) + "</small>", "moved");
     return `<div class="xfer ${esc(x.state)}">
       <div class="xhead"><span class="arrow">${x.dir === "in" ? "↓" : "↑"}</span><span class="name">${esc(x.name)}</span>
-        <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span><span class="state">${esc(label)}</span></div>
+        <span class="peer-name">${x.dir === "in" ? "from" : "to"} ${esc(x.peer)}</span>${x.link ? `<span class="link">via ${esc(x.link.toLowerCase())}</span>` : ""}<span class="state">${esc(label)}</span></div>
       <div class="bar ${x.state === "waiting" ? "waiting" : ""}"><div class="fill" style="width:${pct.toFixed(1)}%"></div></div>
       <div class="stats">${stats}<span class="xacts">
         ${live ? `<button data-cancel="${esc(x.id)}">stop</button>` : ""}
         ${x.state === "done" && x.dir === "in" && x.dest ? `<button data-reveal="${esc(x.dest)}">show</button>` : ""}</span></div>
       ${x.retrying ? `<div class="xnote err">${esc(x.retrying)}</div>` : ""}
+      ${live ? (x.tips || []).map((t) => `<div class="xnote tip">${esc(t)}</div>`).join("") : ""}
       ${x.error && x.state !== "declined" ? `<div class="xnote err">${esc(x.error)}</div>` : ""}
     </div>`;
   }).join("");
@@ -502,6 +508,8 @@ function connect() {
   es.onmessage = (e) => { $("offline").style.display = "none"; render(JSON.parse(e.data)); };
   es.onerror = () => { $("offline").style.display = "block"; };
 }
+// Opening a new launch link in this tab only changes the #fragment, which doesn't reload the page.
+window.addEventListener("hashchange", () => { if (location.hash.includes("t=")) location.reload(); });
 boot();
 </script>
 </body>

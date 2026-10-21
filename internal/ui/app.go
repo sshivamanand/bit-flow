@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sshivamanand/bit-flow/internal/advisor"
 	"github.com/sshivamanand/bit-flow/internal/awake"
 	"github.com/sshivamanand/bit-flow/internal/config"
 	"github.com/sshivamanand/bit-flow/internal/discovery"
@@ -71,8 +72,13 @@ type xfer struct {
 	Started  time.Time `json:"started"`
 	Finished time.Time `json:"finished,omitzero"`
 	Retrying string    `json:"retrying,omitempty"`
+	Streams  int       `json:"streams,omitempty"`
+	Saved    int64     `json:"saved,omitempty"` // bytes compression kept off the wire
+	Link     string    `json:"link,omitempty"`  // e.g. "Wi-Fi → Ethernet" or "Wi-Fi + Thunderbolt Bridge"
+	Tips     []string  `json:"tips,omitempty"`
 
 	progress func() (done int64, accepted bool)
+	refresh  func(x *xfer) // optional: live details, called with a.mu held
 	cancel   func()
 	release  func() // keep-awake hold
 	lastDone int64
@@ -172,6 +178,9 @@ func (a *App) tick(ctx context.Context) {
 				done, accepted := x.progress()
 				if accepted && x.State == "waiting" {
 					x.State, x.lastDone, x.lastT = "running", done, now
+				}
+				if x.refresh != nil {
+					x.refresh(x)
 				}
 				if x.State == "running" {
 					if dt := now.Sub(x.lastT).Seconds(); dt > 0 && !x.lastT.IsZero() {
@@ -348,6 +357,25 @@ func (a *App) Send(to, peerName string, paths []string, code string, raw bool) (
 		st := s.Stats()
 		return st.Committed, st.Accepted
 	}
+	x.refresh = func(x *xfer) {
+		st := s.Stats()
+		if !st.Accepted {
+			return
+		}
+		x.Streams, x.Saved = st.Streams, st.Saved
+		r := st.Route
+		links := []string{orIP(r.LocalLabel, r.LocalIP)}
+		if len(st.Paths) > 1 {
+			links = links[:0]
+			for _, p := range st.Paths {
+				links = append(links, p.Label)
+			}
+			x.Link = strings.Join(links, " + ")
+		} else {
+			x.Link = orIP(r.LocalLabel, r.LocalIP) + " → " + orIP(r.PeerLabel, r.PeerIP)
+		}
+		x.Tips = advisor.Tips(advisor.Link{Label: r.LocalLabel, IP: r.LocalIP}, advisor.Link{Label: r.PeerLabel, IP: r.PeerIP}, links)
+	}
 	a.mu.Lock()
 	a.transfers = append([]*xfer{x}, a.transfers...)
 	a.mu.Unlock()
@@ -360,6 +388,7 @@ func (a *App) Send(to, peerName string, paths []string, code string, raw bool) (
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		x.Retrying = ""
+		x.refresh(x)
 		if res.Already > 0 {
 			x.Already = res.Already
 		}
@@ -533,6 +562,13 @@ func (a *App) State() State {
 	}
 	sort.SliceStable(st.Transfers, func(i, j int) bool { return st.Transfers[i].Started.After(st.Transfers[j].Started) })
 	return st
+}
+
+func orIP(label, ip string) string {
+	if label != "" {
+		return label
+	}
+	return ip
 }
 
 func orDefault(s, def string) string {

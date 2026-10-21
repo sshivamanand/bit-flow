@@ -61,7 +61,7 @@ cd docs && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --head
 | `internal/planner` | Sender side: walk paths → `Manifest`; split into work `Unit`s (32 MiB chunks of big files, packs of small files), honoring resume info. |
 | `internal/store` | Receiver side: path safety, conflict policy, preallocation, out-of-order `WriteAt`, packs, `.bitflow-partial` + rename, resume journal, free-space checks. |
 | `internal/transfer` | The engine: `Sender` / `Receiver`, control session, N data streams, pipelines, retries, compression (`compress.go`), stream gate + tuner (`tuner.go`), multipath (`paths.go`). |
-| `internal/web` | Browser side of the transfer port: `Split` (peer vs HTTP by first bytes), `/get` + installer, phone upload/download pages, QR (terminal + SVG). |
+| `internal/web` | Browser side of the transfer port: `Split` (peer vs HTTP by first bytes), `/get` + installer, phone upload/download pages, the room (`room.go`: browser ↔ browser via the host), QR (terminal + SVG). |
 | `internal/steam` | Steam libraries and installed games (VDF parser); `BITFLOW_STEAM_ROOT` points it at a fake install in tests. |
 | `internal/history` | Append-only `history.jsonl` shared by CLI and app (`bitflow history`). |
 | `internal/advisor` | Plain-English advice from the route (double air hop, multipath, cable, client isolation). |
@@ -83,8 +83,12 @@ what has landed per milestone.
   `KindDataRaw` with an HMAC token from the pairing key. `KindProbe` only returns public discovery info.
   No unauthenticated path to files exists. Keep it that way.
 - **Browser pages on the LAN port** need the pairing code (`hub.checkCode`, same penalty and rotation as PAKE)
-  before any upload/download. Uploads go through `store.SafeJoin` and never overwrite. Only `/`, `/get*` and
-  `/web/info` are public.
+  before any upload/download. Uploads go through `store.SafeJoin` and never overwrite. Only `/`, `/get*`,
+  `/web/info` and joining the room (`/room/ws`, `/room/qr`) are public.
+- **The room's WebSocket carries presence, pairing and progress only.** File bytes go HTTP PUT → relayed →
+  HTTP download, so receivers' browsers stream to disk; never move data onto the socket. The socket is
+  same-Origin only, sending needs the target tab's code (or an earlier pairing), and `/room/up` / `/room/dl`
+  need the tab's secret key and the right role. The host relays and never writes room data to disk.
 - **The UI server only listens on loopback**, checks the Host header, needs a session cookie or the launch
   token, and requires `X-Bitflow: 1` on writes. Never store raw session IDs (hash them).
 - **Receiver never trusts sender paths.** Everything goes through `store.SafeJoin`. Never write outside `Dest`.

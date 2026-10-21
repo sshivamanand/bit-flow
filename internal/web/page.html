@@ -15,20 +15,24 @@ html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
   font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
   font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
-  padding: max(20px, env(safe-area-inset-top)) 18px 40px;
+  padding: max(20px, env(safe-area-inset-top)) 16px 40px;
 }
 .wrap { max-width: 640px; margin: 0 auto; }
-.logo { font-size: 24px; font-weight: 500; letter-spacing: -.03em; margin-bottom: 4px; }
+.top { display: flex; align-items: baseline; gap: 10px; }
+.logo { font-size: 24px; font-weight: 500; letter-spacing: -.03em; }
 .logo span { color: var(--accent); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sub); display: inline-block; margin-left: auto; align-self: center; }
+.dot.on { background: var(--accent); }
 .sub { color: var(--sub); }
 .small { font-size: 13px; }
 h2 { font-size: 13px; font-weight: 400; color: var(--sub); margin: 30px 0 12px; display: flex; align-items: center; gap: 10px; }
 h2::after { content: ""; flex: 1; height: 1px; background: var(--bg3); }
-button, .btn { font: inherit; border: 0; border-radius: 9px; padding: 11px 16px; cursor: pointer; background: var(--bg2); color: var(--text); text-decoration: none; display: inline-block; }
+button, .btn { font: inherit; border: 0; border-radius: 9px; padding: 11px 16px; cursor: pointer; background: var(--bg2); color: var(--text); text-decoration: none; display: inline-block; text-align: center; }
 button.go, .btn.go { background: var(--accent); color: var(--bg); font-weight: 500; }
-button:disabled { opacity: .5; }
+button.link { background: none; padding: 2px 4px; color: var(--sub); font-size: 13px; }
+button:disabled { opacity: .5; cursor: default; }
 input { font: inherit; color: var(--accent); background: var(--bg2); border: 0; border-radius: 9px; padding: 12px; width: 100%; }
-input:focus, button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:focus, button:focus-visible, .btn:focus-visible, .dev:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .codein { font-size: 28px; letter-spacing: .3em; text-align: center; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .err { color: var(--error); font-size: 13.5px; min-height: 1.3em; margin-top: 8px; }
@@ -43,34 +47,110 @@ pre { background: var(--bg2); border-radius: 9px; padding: 10px 12px; overflow-x
 .pick label { flex: 1; min-width: 140px; text-align: center; }
 .pick input { display: none; }
 [hidden] { display: none !important; }
+
+/* you */
+.me { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-top: 18px; }
+.me .name { flex: 1; min-width: 180px; }
+.me input.nm { color: var(--text); background: none; padding: 0; font-size: 20px; border-radius: 4px; }
+.me input.nm:hover { background: var(--bg2); }
+.mycode { font-size: 36px; color: var(--accent); letter-spacing: .08em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.label { font-size: 12px; color: var(--sub); }
+
+/* devices */
+.devs { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.dev { background: var(--bg2); border-radius: 12px; padding: 14px; cursor: pointer; border: 0; text-align: left; color: var(--text); font: inherit; min-width: 0; }
+.dev:hover { background: var(--bg3); }
+.dev .dn { font-size: 16px; overflow-wrap: anywhere; }
+.dev .dk { font-size: 12px; color: var(--sub); margin-top: 2px; }
+.dev .ds { font-size: 12px; margin-top: 8px; color: var(--sub); }
+.dev .ds.ok { color: var(--accent); }
+.dev.off { opacity: .45; cursor: default; }
+.empty { color: var(--sub); font-size: 13.5px; padding: 6px 0; }
+
+/* transfers */
+.x { padding: 12px 0; border-bottom: 1px solid var(--bg3); }
+.x .h { display: flex; gap: 10px; align-items: baseline; }
+.x .h .n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.x .meta { font-size: 12.5px; color: var(--sub); margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+.x .meta .big { color: var(--text); }
+.x.bad .meta .st { color: var(--error); }
+.x.good .meta .st { color: var(--accent); }
+
+/* invite */
+.invite { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.invite img { width: 150px; height: 150px; background: #fff; border-radius: 10px; padding: 6px; }
+.invite .url { font-size: 18px; overflow-wrap: anywhere; }
+
+/* sheets */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+.sheet { background: var(--bg); width: 100%; max-width: 520px; border-radius: 16px 16px 0 0; padding: 22px 18px max(22px, env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }
+@media (min-width: 640px) { .scrim { align-items: center; } .sheet { border-radius: 16px; } }
+.sheet .t { font-size: 18px; margin-bottom: 4px; overflow-wrap: anywhere; }
+.sheet .acts { display: flex; gap: 8px; margin-top: 18px; }
+.sheet .acts button { flex: 1; }
+.files { margin-top: 12px; font-size: 13.5px; }
+.files div { display: flex; gap: 10px; padding: 3px 0; }
+.files div span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--bg3); padding: 10px 16px; border-radius: 9px; font-size: 13.5px; z-index: 20; max-width: calc(100% - 32px); }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="logo"><span>bit</span>-flow</div>
-  <div class="sub" id="who">…</div>
+  <div class="top"><div class="logo"><span>bit</span>-flow</div><span class="sub small">room</span><span class="dot" id="dot" title="connecting…"></span></div>
 
-  <section id="loginBox" hidden>
-    <h2>pairing code</h2>
-    <div class="sub small" id="loginHint"></div>
-    <input id="code" class="codein" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="······" style="margin-top:10px">
-    <div class="err" id="loginErr"></div>
-    <button class="go" id="loginBtn" style="width:100%">continue</button>
-  </section>
-
-  <section id="uploadBox" hidden>
-    <h2>send files to <span id="upName"></span></h2>
-    <div class="pick">
-      <label class="btn go">choose files<input type="file" id="files" multiple></label>
-      <label class="btn" id="folderPick">choose a folder<input type="file" id="folder" webkitdirectory multiple></label>
+  <div class="me">
+    <div class="name">
+      <div class="label">you are</div>
+      <input class="nm" id="myName" maxlength="40" aria-label="your name" spellcheck="false" autocomplete="off">
+      <div class="label" id="myKind"></div>
     </div>
-    <div id="upList"></div>
+    <div>
+      <div class="label">your code</div>
+      <div class="mycode" id="myCode">··· ···</div>
+    </div>
+  </div>
+  <div class="sub small" style="margin-top:6px">others type your code to send to you. you'll still be asked before anything arrives.</div>
+
+  <h2>devices on this wi-fi</h2>
+  <div class="devs" id="devs"></div>
+  <div class="empty" id="devsEmpty" hidden>no one else here yet. open this page on another device on the same wi-fi.</div>
+
+  <section id="xferBox" hidden>
+    <h2>transfers</h2>
+    <div id="xfers"></div>
+    <div class="sub small" style="margin-top:8px">keep this page open until transfers finish. on a phone, don't lock the screen.</div>
   </section>
 
-  <section id="shareBox" hidden>
-    <h2>download from <span id="shName"></span></h2>
-    <div id="shList"></div>
-    <div class="sub small" style="margin-top:8px">folders download as a .zip.</div>
+  <section id="inviteBox" hidden>
+    <h2>invite</h2>
+    <div class="invite">
+      <img src="/room/qr" alt="qr code for this page">
+      <div><div class="label">scan, or open on the same wi-fi</div><div class="url" id="inviteURL"></div></div>
+    </div>
+  </section>
+
+  <section id="hostBox" hidden>
+    <h2 id="hostTitle">this computer</h2>
+    <div class="sub small" id="hostWho"></div>
+    <div id="loginBox" hidden>
+      <div class="sub small" id="loginHint" style="margin-top:10px"></div>
+      <input id="code" class="codein" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="······" style="margin-top:10px">
+      <div class="err" id="loginErr"></div>
+      <button class="go" id="loginBtn" style="width:100%">continue</button>
+    </div>
+    <div id="uploadBox" hidden>
+      <div class="label" style="margin:12px 0 8px">send files to <span id="upName"></span></div>
+      <div class="pick">
+        <label class="btn go">choose files<input type="file" id="files" multiple></label>
+        <label class="btn folderPick">choose a folder<input type="file" id="folder" webkitdirectory multiple></label>
+      </div>
+      <div id="upList"></div>
+    </div>
+    <div id="shareBox" hidden>
+      <div class="label" style="margin:16px 0 4px">download from <span id="shName"></span></div>
+      <div id="shList"></div>
+      <div class="sub small" style="margin-top:8px">folders download as a .zip.</div>
+    </div>
   </section>
 
   <section id="getBox">
@@ -81,6 +161,37 @@ pre { background: var(--bg2); border-radius: 9px; padding: 10px 12px; overflow-x
   </section>
 </div>
 
+<!-- send to a device -->
+<div class="scrim" id="sendDlg" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sendTitle">
+    <div class="t" id="sendTitle"></div>
+    <div class="sub small" id="sendSub"></div>
+    <div class="pick" style="margin-top:14px">
+      <label class="btn go">choose files<input type="file" id="sendFiles" multiple></label>
+      <label class="btn folderPick">choose a folder<input type="file" id="sendFolder" webkitdirectory multiple></label>
+    </div>
+    <div class="files" id="sendList"></div>
+    <div id="sendCodeBox" hidden>
+      <div class="label" style="margin-top:14px" id="sendCodeHint"></div>
+      <input id="sendCode" class="codein" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="······" style="margin-top:6px">
+    </div>
+    <div class="err" id="sendErr"></div>
+    <div class="acts"><button id="sendCancel">cancel</button><button class="go" id="sendGo" disabled>send</button></div>
+  </div>
+</div>
+
+<!-- someone wants to send to you -->
+<div class="scrim" id="inDlg" hidden>
+  <div class="sheet" role="alertdialog" aria-modal="true" aria-labelledby="inTitle">
+    <div class="t" id="inTitle"></div>
+    <div class="sub small" id="inSub"></div>
+    <div class="files" id="inList"></div>
+    <div class="acts"><button id="inNo">decline</button><button class="go" id="inYes">accept &amp; download</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -89,34 +200,308 @@ function bytes(n) {
   const u = n >= 1e9 ? [1e9, "GB"] : n >= 1e6 ? [1e6, "MB"] : n >= 1e3 ? [1e3, "KB"] : [1, "B"];
   return (u[0] === 1 ? n : (n / u[0]).toFixed(1)) + " " + u[1];
 }
-async function api(method, path, body, extra) {
-  const res = await fetch(path, Object.assign({method, credentials: "same-origin",
-    headers: {"X-Bitflow": "1", "Content-Type": "application/json"}, body: body === undefined ? undefined : JSON.stringify(body)}, extra || {}));
+const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? "" : "s"}`;
+const spaced = (c) => c ? c.slice(0, 3) + " " + c.slice(3) : "··· ···";
+// Storage can throw (private mode, blocked site data); the room works without it.
+const store = {
+  get(area, k) { try { return window[area].getItem(k) || ""; } catch { return ""; } },
+  set(area, k, v) { try { window[area].setItem(k, v); } catch {} },
+};
+let toastTimer = 0;
+function toast(msg) {
+  $("toast").textContent = msg; $("toast").hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("toast").hidden = true; }, 3500);
+}
+async function api(method, path, body) {
+  const res = await fetch(path, {method, credentials: "same-origin",
+    headers: {"X-Bitflow": "1", "Content-Type": "application/json"}, body: body === undefined ? undefined : JSON.stringify(body)});
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
-let info = null;
+// iPadOS presents itself as a Mac; touch support gives it away.
+const isIPad = /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
+const mobile = isIPad || /iPhone|iPad|Android/.test(navigator.userAgent);
+// Folder picking exists in desktop browsers; phones only pick files.
+if (!("webkitdirectory" in document.createElement("input")) || mobile) document.querySelectorAll(".folderPick").forEach((el) => { el.hidden = true; });
 
-async function load() {
+// ---- the room ----
+let ws = null, me = null, roster = [], retry = 0, pingTimer = 0;
+const xfers = new Map(); // id → {id, dir: "out"|"in", peer, peerName, files, total, bytes, state, error, objs, ctrl, rate, t, b}
+const inQueue = [];
+let sending = null; // the open send sheet: {to, name, paired, objs, busy}
+
+function connect() {
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/room/ws");
+  ws.onopen = () => {
+    retry = 0;
+    ws.send(JSON.stringify({type: "hello", name: store.get("localStorage", "bitflow.name"), key: store.get("sessionStorage", "bitflow.key"), kind: isIPad ? "iPad" : ""}));
+    clearInterval(pingTimer);
+    pingTimer = setInterval(() => { if (ws.readyState === 1) ws.send('{"type":"ping"}'); }, 25000);
+  };
+  ws.onmessage = (e) => { try { onMsg(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  ws.onclose = () => {
+    clearInterval(pingTimer);
+    setOnline(false);
+    // A phone that locked its screen comes back with the same key and keeps its seat.
+    setTimeout(connect, Math.min(1000 * 2 ** retry++, 10000));
+  };
+}
+function wsSend(m) { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(m)); return true; } toast("not connected — reconnecting…"); return false; }
+function setOnline(on) { $("dot").className = on ? "dot on" : "dot"; $("dot").title = on ? "connected" : "reconnecting…"; }
+
+function onMsg(m) {
+  switch (m.type) {
+  case "welcome":
+    me = {id: m.id, key: m.key, code: m.code, name: m.name, kind: m.kind};
+    store.set("sessionStorage", "bitflow.key", m.key);
+    setOnline(true); renderMe(); break;
+  case "error": toast(m.error); break;
+  case "name": if (me) { me.name = m.name; renderMe(); } break;
+  case "roster": roster = m.members || []; renderDevs(); break;
+  case "code":
+    me.code = m.code; renderMe();
+    toast("too many wrong guesses: your code changed. anyone sending to you needs the new one.");
+    break;
+  case "offer-error":
+    if (sending && sending.to === m.to) {
+      sending.busy = false; $("sendErr").textContent = m.error; renderSend();
+      if (/wrong code/.test(m.error)) { $("sendCode").select(); }
+    } else toast(m.error);
+    break;
+  case "offered": {
+    const objs = sending && sending.to === m.to ? sending.objs : [];
+    xfers.set(m.xfer, {id: m.xfer, dir: "out", peer: m.to, peerName: nameOf(m.to), files: m.files, total: m.total, bytes: 0, state: "waiting", objs});
+    if (sending && sending.to === m.to) closeSend();
+    renderXfers(); break;
+  }
+  case "incoming":
+    xfers.set(m.xfer, {id: m.xfer, dir: "in", peer: m.from, peerName: m.fromName, files: m.files, total: m.total, bytes: 0, state: "asking"});
+    inQueue.push(m.xfer); showIncoming(); renderXfers(); break;
+  case "accepted": {
+    const x = xfers.get(m.xfer);
+    if (x) { x.state = "sending"; upload(x); renderXfers(); }
+    break;
+  }
+  case "progress": {
+    const x = xfers.get(m.xfer);
+    if (x) { track(x, m.bytes); renderXfers(); }
+    break;
+  }
+  case "done": case "declined": case "cancelled": case "failed": {
+    const x = xfers.get(m.xfer);
+    if (!x) break;
+    if (m.type === "done") track(x, x.total);
+    x.state = m.type; x.error = m.error || "";
+    if (x.ctrl) x.ctrl.abort();
+    x.objs = null;
+    const qi = inQueue.indexOf(x.id);
+    if (qi >= 0) { inQueue.splice(qi, 1); showIncoming(); }
+    renderXfers(); break;
+  }
+  }
+}
+const nameOf = (id) => (roster.find((r) => r.id === id) || {}).name || "?";
+
+function track(x, b) {
+  const now = performance.now();
+  if (x.t) {
+    const dt = (now - x.t) / 1000;
+    if (dt > 0.2) { const r = (b - x.b) / dt; x.rate = x.rate ? x.rate * 0.7 + r * 0.3 : r; x.t = now; x.b = b; }
+  } else { x.t = now; x.b = b; }
+  x.bytes = b;
+}
+
+// ---- you ----
+function renderMe() {
+  if (!me) return;
+  if (document.activeElement !== $("myName")) $("myName").value = me.name;
+  $("myKind").textContent = me.kind;
+  $("myCode").textContent = spaced(me.code);
+}
+function rename() {
+  const n = $("myName").value.trim();
+  if (!me || !n || n === me.name) { if (me) $("myName").value = me.name; return; }
+  me.name = n; store.set("localStorage", "bitflow.name", n);
+  wsSend({type: "rename", name: n});
+}
+$("myName").addEventListener("change", rename);
+$("myName").addEventListener("keydown", (e) => { if (e.key === "Enter") $("myName").blur(); });
+
+// ---- devices ----
+let info = null;
+function renderDevs() {
+  const cards = [];
+  if (info) {
+    const what = [info.upload && "receives files", info.share && "is sharing files"].filter(Boolean).join(", ") || "runs bit-flow";
+    cards.push(`<button class="dev" data-host="1"><div class="dn">${esc(info.name)}</div><div class="dk">this computer · ${esc(what)}</div>
+      <div class="ds ${info.signedIn ? "ok" : ""}">${info.signedIn ? "connected" : "code needed"}</div></button>`);
+  }
+  const list = [...roster].sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name));
+  for (const d of list) {
+    cards.push(`<button class="dev${d.online ? "" : " off"}" data-id="${esc(d.id)}" ${d.online ? "" : "disabled"}>
+      <div class="dn">${esc(d.name)}</div><div class="dk">${esc(d.kind)}</div>
+      <div class="ds ${d.paired ? "ok" : ""}">${!d.online ? "away…" : d.paired ? "paired · tap to send" : "tap to send · code needed"}</div></button>`);
+  }
+  $("devs").innerHTML = cards.join("");
+  $("devsEmpty").hidden = roster.length > 0;
+  // A device that left can't be the target of an open send sheet.
+  if (sending && !sending.busy && !roster.some((r) => r.id === sending.to && r.online)) { closeSend(); toast("that device left"); }
+  if (sending) { const d = roster.find((r) => r.id === sending.to); if (d) { sending.paired = d.paired; renderSend(); } }
+}
+$("devs").addEventListener("click", (e) => {
+  const card = e.target.closest(".dev");
+  if (!card || card.disabled) return;
+  if (card.dataset.host) { $("hostBox").scrollIntoView({behavior: "smooth"}); if (!$("loginBox").hidden) $("code").focus({preventScroll: true}); return; }
+  const d = roster.find((r) => r.id === card.dataset.id);
+  if (d) openSend(d);
+});
+
+// ---- send sheet ----
+function openSend(d) {
+  sending = {to: d.id, name: d.name, paired: d.paired, objs: [], busy: false};
+  $("sendCode").value = ""; $("sendErr").textContent = "";
+  renderSend(); $("sendDlg").hidden = false;
+}
+function closeSend() { sending = null; $("sendDlg").hidden = true; }
+function renderSend() {
+  if (!sending) return;
+  $("sendTitle").textContent = "send to " + sending.name;
+  const total = sending.objs.reduce((s, f) => s + f.size, 0);
+  $("sendSub").textContent = sending.objs.length ? `${plural(sending.objs.length, "file")} · ${bytes(total)}` : "pick what to send.";
+  const shown = sending.objs.slice(0, 6).map((f) => `<div><span>${esc(f.webkitRelativePath || f.name)}</span><span class="sub">${bytes(f.size)}</span></div>`);
+  if (sending.objs.length > 6) shown.push(`<div class="sub">and ${plural(sending.objs.length - 6, "more file")}</div>`);
+  $("sendList").innerHTML = shown.join("");
+  $("sendCodeBox").hidden = sending.paired;
+  $("sendCodeHint").textContent = `the code shown on ${sending.name}`;
+  const codeOK = sending.paired || $("sendCode").value.replace(/\D/g, "").length === 6;
+  $("sendGo").disabled = sending.busy || !sending.objs.length || !codeOK;
+  $("sendGo").textContent = sending.busy ? "asking…" : "send";
+}
+function pickSend(e) {
+  if (sending) { sending.objs = [...e.target.files]; $("sendErr").textContent = ""; renderSend(); if (!sending.paired) $("sendCode").focus(); }
+  e.target.value = "";
+}
+$("sendFiles").onchange = pickSend;
+$("sendFolder").onchange = pickSend;
+$("sendCode").addEventListener("input", renderSend);
+$("sendCode").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("sendGo").disabled) $("sendGo").click(); });
+$("sendCancel").onclick = closeSend;
+$("sendGo").onclick = () => {
+  if (!sending || sending.busy) return;
+  const files = sending.objs.map((f) => ({name: f.webkitRelativePath || f.name, size: f.size}));
+  if (wsSend({type: "offer", to: sending.to, code: sending.paired ? "" : $("sendCode").value, files})) {
+    sending.busy = true; $("sendErr").textContent = ""; renderSend();
+  }
+};
+
+// The sender uploads file by file once the receiver has accepted; the
+// computer in the middle passes the bytes straight to the receiver's download.
+async function upload(x) {
+  x.ctrl = new AbortController();
+  try {
+    for (let i = 0; i < x.objs.length; i++) {
+      const res = await fetch(`/room/up/${encodeURIComponent(x.id)}/${i}?k=${encodeURIComponent(me.key)}`,
+        {method: "PUT", headers: {"X-Bitflow": "1"}, body: x.objs[i], signal: x.ctrl.signal});
+      if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+    }
+  } catch (e) {
+    // The room reports the real reason (cancelled, the receiver stopped…) on the socket.
+    if (x.state === "sending") { x.error = e.name === "AbortError" ? "" : e.message; renderXfers(); }
+  }
+}
+
+// ---- incoming ----
+function showIncoming() {
+  const x = xfers.get(inQueue[0]);
+  if (!x) { $("inDlg").hidden = true; return; }
+  $("inTitle").textContent = `${x.peerName} wants to send you`;
+  $("inSub").textContent = `${plural(x.files.length, "file")} · ${bytes(x.total)}${x.files.length > 1 ? " · arrives as one .zip" : ""}`;
+  const shown = x.files.slice(0, 8).map((f) => `<div><span>${esc(f.name)}</span><span class="sub">${bytes(f.size)}</span></div>`);
+  if (x.files.length > 8) shown.push(`<div class="sub">and ${plural(x.files.length - 8, "more file")}</div>`);
+  $("inList").innerHTML = shown.join("");
+  $("inDlg").hidden = false;
+}
+// Accepting starts the download inside the tap, so every browser (iOS Safari
+// included) treats it as the user's own and saves it straight to disk.
+$("inYes").onclick = () => {
+  const x = xfers.get(inQueue.shift());
+  showIncoming();
+  if (!x || x.state !== "asking") return;
+  const a = document.createElement("a");
+  a.href = `/room/dl/${encodeURIComponent(x.id)}?k=${encodeURIComponent(me.key)}`;
+  a.download = "";
+  document.body.append(a); a.click(); a.remove();
+  x.state = "receiving"; renderXfers();
+};
+$("inNo").onclick = () => {
+  const x = xfers.get(inQueue.shift());
+  showIncoming();
+  if (x) wsSend({type: "decline", xfer: x.id});
+};
+
+// ---- transfers ----
+const live = (x) => ["waiting", "asking", "sending", "receiving"].includes(x.state);
+function renderXfers() {
+  const list = [...xfers.values()].reverse();
+  $("xferBox").hidden = !list.length;
+  $("xfers").innerHTML = list.map((x) => {
+    const pct = x.total ? Math.min(100, x.bytes / x.total * 100) : (x.state === "done" ? 100 : 0);
+    const what = x.files.length === 1 ? x.files[0].name.split("/").pop() : plural(x.files.length, "file");
+    const st = {waiting: `waiting for ${x.peerName} to accept`, asking: "waiting for you", sending: "sending", receiving: "receiving",
+      done: "done ✓", declined: "declined", cancelled: "cancelled", failed: "failed"}[x.state] || x.state;
+    const why = x.error && x.state !== "done" ? " — " + x.error : "";
+    const cls = x.state === "done" ? "good" : live(x) ? "" : "bad";
+    const rate = live(x) && x.rate > 0 ? `<span>${bytes(x.rate)}/s</span>` : "";
+    return `<div class="x ${cls}"><div class="h"><span class="n">${x.dir === "out" ? "→" : "←"} ${esc(x.peerName)} · ${esc(what)}</span>
+      ${live(x) ? `<button class="link" data-cancel="${esc(x.id)}">cancel</button>` : ""}</div>
+      <div class="bar"><div style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="meta"><span class="big">${bytes(x.bytes)}</span><span>of ${bytes(x.total)}</span>${rate}<span class="st">${esc(st + why)}</span></div></div>`;
+  }).join("");
+}
+$("xfers").addEventListener("click", (e) => {
+  const id = e.target.dataset && e.target.dataset.cancel;
+  if (!id) return;
+  const x = xfers.get(id);
+  if (x && x.ctrl) x.ctrl.abort();
+  wsSend({type: "cancel", xfer: id});
+});
+window.addEventListener("beforeunload", (e) => {
+  if ([...xfers.values()].some((x) => live(x) && x.state !== "asking")) { e.preventDefault(); e.returnValue = ""; }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("sendDlg").hidden) closeSend();
+  else if (!$("inDlg").hidden) $("inNo").click();
+});
+
+// ---- invite ----
+if (!/^(localhost|127\.|\[::1\])/.test(location.hostname)) {
+  $("inviteURL").textContent = location.host;
+  $("inviteBox").hidden = false;
+}
+
+// ---- this computer (the one hosting the room) ----
+async function loadHost() {
   info = await api("GET", "/web/info");
-  $("who").textContent = info.upload && info.share ? info.name : info.upload ? `${info.name} is ready to receive` : info.share ? `${info.name} is sharing files` : info.name;
+  $("hostTitle").textContent = "this computer · " + info.name;
   $("upName").textContent = info.name; $("shName").textContent = info.name;
-  const wantsLogin = (info.upload || info.share) && !info.signedIn;
-  $("loginBox").hidden = !wantsLogin;
-  $("loginHint").textContent = `the 6-digit code shown on ${info.name}`;
+  const offers = info.upload || info.share;
+  $("hostBox").hidden = !offers;
+  $("hostWho").textContent = info.upload && info.share ? "it can receive files and is sharing some." : info.upload ? "it's ready to receive files." : info.share ? "it's sharing files." : "";
+  $("loginBox").hidden = !offers || info.signedIn;
+  $("loginHint").textContent = `enter the 6-digit pairing code shown on ${info.name}`;
   $("uploadBox").hidden = !(info.upload && info.signedIn);
   $("shareBox").hidden = !(info.share && info.signedIn);
   if (info.share && info.signedIn) loadShared();
-  // Folder upload exists in desktop browsers; phones only pick files.
-  if (!("webkitdirectory" in document.createElement("input")) || /iPhone|iPad|Android/.test(navigator.userAgent)) $("folderPick").hidden = true;
-  renderBins();
+  renderBins(); renderDevs();
 }
 
 function renderBins() {
   const bins = info.binaries || [];
   const ua = navigator.userAgent;
-  const mine = /Windows/.test(ua) ? "windows" : /Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua) ? "darwin" : /Linux/.test(ua) && !/Android/.test(ua) ? "linux" : "";
+  const mine = mobile ? "" : /Windows/.test(ua) ? "windows" : /Mac OS X/.test(ua) ? "darwin" : /Linux/.test(ua) && !/Android/.test(ua) ? "linux" : "";
   const label = (b) => ({darwin: "mac", windows: "windows", linux: "linux"}[b.os]) + " " + (b.arch === "arm64" ? (b.os === "darwin" ? "apple silicon" : "arm") : b.arch === "amd64" && b.os === "darwin" ? "intel" : "x64");
   bins.sort((a, b) => (b.os === mine) - (a.os === mine));
   $("bins").innerHTML = bins.length ? bins.map((b) => `<a class="btn ${b.os === mine ? "go" : ""}" href="/get/${esc(b.platform)}${b.os === "windows" ? ".exe" : ""}">${esc(label(b))} <span class="small">${bytes(b.size)}</span></a>`).join("")
@@ -128,13 +513,13 @@ function renderBins() {
 
 $("loginBtn").onclick = async () => {
   $("loginBtn").disabled = true;
-  try { await api("POST", "/web/login", {code: $("code").value}); await load(); }
+  try { await api("POST", "/web/login", {code: $("code").value}); $("loginErr").textContent = ""; await loadHost(); }
   catch (e) { $("loginErr").textContent = e.message; }
   finally { $("loginBtn").disabled = false; }
 };
 $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("loginBtn").click(); });
 
-// ---- upload: files go up in 8 MB chunks, 4 at a time ----
+// ---- upload to this computer: 8 MB chunks, 4 at a time ----
 const CHUNK = 8 << 20, PARALLEL = 4;
 async function uploadFiles(list) {
   for (const file of list) {
@@ -176,7 +561,8 @@ async function loadShared() {
     `<div class="sub small">nothing shared.</div>`;
 }
 
-load().catch((e) => { $("who").textContent = e.message; });
+connect();
+loadHost().catch((e) => { $("hostWho").textContent = e.message; });
 </script>
 </body>
 </html>

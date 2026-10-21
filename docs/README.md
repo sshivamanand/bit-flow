@@ -6,7 +6,7 @@
 - [The app](app.md): the browser-based app, shortcuts, themes, settings, sessions
 - [Command line](cli.md): every command and flag
 - [Steam games](games.md): send installed games straight into a friend's Steam library
-- [Phones & browsers](phones.md): phones, and giving bit-flow to a laptop that doesn't have it
+- [Phones & browsers](phones.md): the room (any browser to any browser), phones, and giving bit-flow to a laptop that doesn't have it
 - [Speed guide](speed.md): Wi‑Fi physics, cables, multipath, compression, benchmarking
 - [Troubleshooting](troubleshooting.md): devices not found, slow transfers, FAQ
 

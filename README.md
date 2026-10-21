@@ -108,7 +108,7 @@ bit-flow also shrinks files while sending when that helps, and uses several conn
 | **Resume** | Wi‑Fi dropped? It reconnects by itself. Closed the laptop? Send the same thing again later and only the missing part moves. |
 | **Skips what they already have** | Identical files aren't sent twice. |
 | **Steam games** | Click **game**, pick one, and it goes straight into your friend's Steam library. Restart Steam and it's installed. Updates only send what changed. [How](docs/games.md) |
-| **Phones** | Press `p` for a QR code. A phone can send photos to your laptop, or download files from it. [How](docs/phones.md) |
+| **Phones** | Press `p` for a QR code. Any phone, tablet or laptop that opens it joins **the room** and can send to any other, with no install. [How](docs/phones.md) |
 | **Safe** | A pairing code protects every transfer, and everything is encrypted. Nothing is saved without the receiver clicking accept, and nothing is overwritten unless they choose to. [Details](docs/security.md) |
 | **Four colour themes** | Press `t` in the app. |
 
@@ -144,7 +144,7 @@ bitflow send ~/Games/BigGame --code 482913
 | [The app](docs/app.md) | Every screen, button and keyboard shortcut |
 | [Command line](docs/cli.md) | Every command and option |
 | [Steam games](docs/games.md) | Sending games and updates |
-| [Phones & browsers](docs/phones.md) | Phones, and giving bit-flow to a friend |
+| [Phones & browsers](docs/phones.md) | The room (any browser to any browser), phones, and giving bit-flow to a friend |
 | [Speed guide](docs/speed.md) | Getting the most out of your setup |
 | [Troubleshooting](docs/troubleshooting.md) | When something doesn't work |
 | [Security](docs/security.md) | How it keeps your files safe |

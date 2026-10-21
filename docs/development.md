@@ -40,7 +40,7 @@ BITFLOW_CONFIG_DIR=/tmp/b bin/bitflow ui --no-browser
 | `internal/store` | receiver: path safety, conflicts, preallocation, `WriteAt`, resume journal, symlinks |
 | `internal/transfer` | engine: `link.go` (dial vs. listen), `sender.go`, `receiver.go`, `compress.go`, `tuner.go`, `paths.go` |
 | `internal/discovery` | UDP multicast/broadcast discovery, TCP probe fallback |
-| `internal/web` | browser side of the transfer port: port split, `/get`, phone pages, QR codes |
+| `internal/web` | browser side of the transfer port: port split, `/get`, phone pages, the room (`room.go`), QR codes |
 | `internal/ui` | the app: agent, loopback API + SSE, sessions, history, native pickers, `static/index.html` |
 | `internal/steam` | Steam libraries and games (VDF parser) |
 | `internal/advisor` | route-based advice |

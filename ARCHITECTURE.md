@@ -197,8 +197,16 @@ picking the right one from the browser's User-Agent. No internet needed.
 Code login reuses the hub's rate limiting. Uploads use 8 MB chunks, 4 in parallel, are idempotent, and never
 overwrite (`name (1).ext`). Downloads use `http.ServeContent` (Range) and store-only streamed zips for folders.
 The same web UI is exposed to the LAN, protected by the pairing code. It uses parallel chunked
-`PUT` uploads (`File.slice`) and `Range`-resumable downloads. Chromium's File System Access API lets the
-browser stream large downloads straight to disk.
+`PUT` uploads (`File.slice`) and `Range`-resumable downloads.
+
+**The room** (built) lets any browser send to any other through the host. A WebSocket (`/room/ws`, same-Origin
+only) carries presence, per-tab codes, offers and progress. File bytes never go over it: on a plain-HTTP page a
+browser can't stream WebSocket data to disk, so a 50 GB file to a phone would have to fit in memory. Instead the
+sender `PUT`s each file and the receiver opens one ordinary download (a store-only zip for several files); the
+host copies bytes from one request to the other with no temp file, so the receiver's own downloader writes to
+disk. Opening the download is the accept, inside the tap, so iOS Safari treats it as user-initiated. Cancels
+unblock both sides with past read/write deadlines (`http.ResponseController`). Cost: the data crosses the Wi‑Fi
+twice, so about half a direct link; WebRTC between browsers is the possible next step.
 
 ### 4.13 Game mode (built)
 The `update` conflict policy (skip identical, replace changed) turns re-sending a game into an incremental update.
